@@ -21,11 +21,13 @@ class Trade:
     entry_date:   object
     entry_price:  float
     tp_price:     float
-    exit_date:    object = None
-    exit_price:   object = None
-    pnl:          float  = 0.0
-    days_open:    int    = 0
-    closed:       bool   = False
+    exit_date:         object = None
+    exit_price:        object = None
+    pnl:               float  = 0.0
+    days_open:         int    = 0
+    closed:            bool   = False
+    entry_commission:  float  = 0.0   # commission paid on entry side
+    exit_commission:   float  = 0.0   # commission paid on exit side
 
 
 @dataclass
@@ -42,6 +44,7 @@ class BacktestResult:
     avg_days_open:        float
     equity_curve:         pd.Series
     daily_open_contracts: pd.Series
+    total_commission:     float
     params:               dict
 
 
@@ -198,6 +201,7 @@ def run_backtest(
     open_trades: List[Trade] = []
     last_entry_price: Optional[float] = None
     total_pnl: float = 0.0
+    total_comm: float = 0.0
     max_concurrent: int = 0
     cumulative_pnl: float = 0.0
 
@@ -230,20 +234,21 @@ def run_backtest(
         # ══════════════════════════════════════════════════════════════════════
 
         # ── Krok 1a: TP przez gap w gore ─────────────────────────────────────
-        # Jezeli Open > TP danego kontraktu — zamknij po cenie Open (nie TP)
         still_open: List[Trade] = []
         for trade in open_trades:
             if bar_open >= trade.tp_price:
-                # Gap w gore przeskoczyl TP — fill po cenie otwarcia
-                fill_price = bar_open
-                trade.exit_date  = date
-                trade.exit_price = fill_price
-                round_trip_cost  = commission_per_side * 2 * qty_per_entry
-                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry * point_value - round_trip_cost
-                trade.days_open  = (date - trade.entry_date).days
-                trade.closed     = True
-                cumulative_pnl  += trade.pnl
-                total_pnl       += trade.pnl
+                fill_price            = bar_open
+                trade.exit_date       = date
+                trade.exit_price      = fill_price
+                trade.exit_commission = commission_per_side * qty_per_entry
+                # PnL = gross - entry commission (already paid) - exit commission (now)
+                gross = (fill_price - trade.entry_price) * qty_per_entry * point_value
+                trade.pnl       = gross - trade.entry_commission - trade.exit_commission
+                trade.days_open = (date - trade.entry_date).days
+                trade.closed    = True
+                cumulative_pnl += trade.pnl
+                total_pnl      += trade.pnl
+                total_comm     += trade.entry_commission + trade.exit_commission
             else:
                 still_open.append(trade)
 
@@ -253,14 +258,16 @@ def run_backtest(
         still_open2: List[Trade] = []
         for trade in open_trades:
             if bar_high >= trade.tp_price:
-                trade.exit_date  = date
-                trade.exit_price = trade.tp_price
-                round_trip_cost  = commission_per_side * 2 * qty_per_entry
-                trade.pnl        = (trade.tp_price - trade.entry_price) * qty_per_entry * point_value - round_trip_cost
-                trade.days_open  = (date - trade.entry_date).days
-                trade.closed     = True
-                cumulative_pnl  += trade.pnl
-                total_pnl       += trade.pnl
+                trade.exit_date       = date
+                trade.exit_price      = trade.tp_price
+                trade.exit_commission = commission_per_side * qty_per_entry
+                gross = (trade.tp_price - trade.entry_price) * qty_per_entry * point_value
+                trade.pnl       = gross - trade.entry_commission - trade.exit_commission
+                trade.days_open = (date - trade.entry_date).days
+                trade.closed    = True
+                cumulative_pnl += trade.pnl
+                total_pnl      += trade.pnl
+                total_comm     += trade.entry_commission + trade.exit_commission
             else:
                 still_open2.append(trade)
 
@@ -287,11 +294,27 @@ def run_backtest(
 
         if bar_low < entry_threshold:
 
+            def _add_trade(fill_px, tp_px, level):
+                """Helper — tworzy trade, odejmuje entry commission od equity."""
+                ec = commission_per_side * qty_per_entry
+                t  = Trade(
+                    level            = level,
+                    entry_date       = date,
+                    entry_price      = fill_px,
+                    tp_price         = tp_px,
+                    entry_commission = ec,
+                )
+                # Entry commission odejmowana od equity od razu przy kupnie
+                nonlocal cumulative_pnl, total_comm
+                cumulative_pnl -= ec
+                total_comm     += ec
+                return t
+
             # -- Pierwsze wejscie (brak pozycji) --
             if len(open_trades) == 0:
                 fill_px = bar_open if bar_open < entry_threshold else bar_close
                 tp_px   = fill_px + take_profit
-                trade = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=tp_px)
+                trade = _add_trade(fill_px, tp_px, 1)
                 open_trades.append(trade)
                 trades.append(trade)
                 last_entry_price = fill_px
@@ -300,34 +323,22 @@ def run_backtest(
             if len(open_trades) > 0 and last_entry_price is not None:
 
                 # GAP W DOL: Open przeskoczyl przez co najmniej jeden poziom
-                # Kup wszystkie przeskoczone poziomy po cenie Open
                 if bar_open < last_entry_price - pyramid_step:
                     fill_px      = bar_open
-                    tp_px        = fill_px + take_profit  # TP od rzeczywistej ceny kupna
+                    tp_px        = fill_px + take_profit
                     next_trigger = last_entry_price - pyramid_step
                     while next_trigger >= bar_open:
-                        trade = Trade(
-                            level       = len(open_trades) + 1,
-                            entry_date  = date,
-                            entry_price = fill_px,   # fill po cenie Open
-                            tp_price    = tp_px,     # TP = fill + take_profit
-                        )
+                        trade = _add_trade(fill_px, tp_px, len(open_trades) + 1)
                         open_trades.append(trade)
                         trades.append(trade)
-                        last_entry_price = next_trigger  # sledz logiczny poziom
+                        last_entry_price = next_trigger
                         next_trigger     = last_entry_price - pyramid_step
 
-                # NORMALNE INTRABAR: Low spada przez kolejne poziomy
-                # Kup kazdy poziom po jego indywidualnej cenie
+                # NORMALNE INTRABAR
                 next_trigger = last_entry_price - pyramid_step
                 while bar_low <= next_trigger:
                     tp_px = next_trigger + take_profit
-                    trade = Trade(
-                        level       = len(open_trades) + 1,
-                        entry_date  = date,
-                        entry_price = next_trigger,
-                        tp_price    = tp_px,
-                    )
+                    trade = _add_trade(next_trigger, tp_px, len(open_trades) + 1)
                     open_trades.append(trade)
                     trades.append(trade)
                     last_entry_price = next_trigger
@@ -362,6 +373,7 @@ def run_backtest(
         max_capital_needed   = max_capital,
         win_rate             = win_rate,
         avg_days_open        = avg_days,
+        total_commission     = total_comm,
         equity_curve         = equity_curve,
         daily_open_contracts = daily_open,
         params               = {

@@ -333,7 +333,9 @@ with strategy_tab1:
 
         if True:
             cards_html = '<div class="metric-grid">'
-            cards_html += metric_card("Total PnL", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} cumulative", positive=pnl_pos)
+            total_comm_paid = getattr(result, "total_commission", 0.0)
+            cards_html += metric_card("Total PnL", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} after commissions", positive=pnl_pos)
+            cards_html += metric_card("Total commission", f"${total_comm_paid:,.2f}", f"entry + exit · {result.total_trades} trades")
             cards_html += metric_card("Closed trades", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
             cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "% of winning trades", positive=result.win_rate >= 50)
             cards_html += metric_card("Avg PnL / trade", f"${avg_pnl:.2f}", "per closed contract", positive=avg_pnl >= 0)
