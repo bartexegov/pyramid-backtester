@@ -204,14 +204,14 @@ def run_backtest(
                 # Kup wszystkie przeskoczone poziomy po cenie Open
                 if bar_open < last_entry_price - pyramid_step:
                     fill_px      = bar_open
+                    tp_px        = fill_px + take_profit  # TP od rzeczywistej ceny kupna
                     next_trigger = last_entry_price - pyramid_step
                     while next_trigger >= bar_open:
-                        tp_px = next_trigger + take_profit
                         trade = Trade(
                             level       = len(open_trades) + 1,
                             entry_date  = date,
                             entry_price = fill_px,   # fill po cenie Open
-                            tp_price    = tp_px,
+                            tp_price    = tp_px,     # TP = fill + take_profit
                         )
                         open_trades.append(trade)
                         trades.append(trade)
