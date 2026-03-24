@@ -639,23 +639,10 @@ with strategy_tab1:
             st.markdown("<div style='margin-top:24px;border-top:1px solid #1e293b;padding-top:20px'></div>", unsafe_allow_html=True)
             st.markdown("<div style='font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:12px'>🔥 Volume Profile — strefy wsparcia</div>", unsafe_allow_html=True)
 
-            if "vp_days" not in st.session_state:
-                st.session_state["vp_days"] = 365 * 10
-
-            st.markdown("<div style='font-size:0.75rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px'>Okres Volume Profile</div>", unsafe_allow_html=True)
-            qc = st.columns(5)
-            quick_labels = ["1 rok", "5 lat", "10 lat", "20 lat", "Max"]
-            quick_days   = [365, 365*5, 365*10, 365*20, 365*40]
-            for i, (qcol, qlabel, qday) in enumerate(zip(qc, quick_labels, quick_days)):
-                with qcol:
-                    if st.button(qlabel, key=f"vp_q_{i}", use_container_width=True):
-                        st.session_state["vp_days"] = qday
-
             vp_min_date = date(1950, 1, 1)
-            vp_start_default = max(vp_min_date, date.today() - timedelta(days=st.session_state["vp_days"]))
             vp_dc1, vp_dc2 = st.columns(2)
             with vp_dc1:
-                vp_start = st.date_input("Od", value=vp_start_default, key="vp_start2", min_value=vp_min_date, max_value=date.today())
+                vp_start = st.date_input("Od", value=date.today() - timedelta(days=365*10), key="vp_start2", min_value=vp_min_date, max_value=date.today())
             with vp_dc2:
                 vp_end = st.date_input("Do", value=date.today(), key="vp_end2", min_value=vp_min_date, max_value=date.today())
 
@@ -882,24 +869,11 @@ if False:
         vp_symbol = COMMODITY_SYMBOLS[vp_symbol_name]
 
     with vp_col2:
-        st.markdown("<div style='font-size:0.75rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px'>Okres historyczny</div>", unsafe_allow_html=True)
-        quick_cols = st.columns(5)
-        quick_labels = ["1 rok", "5 lat", "10 lat", "20 lat", "Max"]
-        quick_days   = [365, 365*5, 365*10, 365*20, 365*40]
-        vp_quick = None
-        for i, (col, label) in enumerate(zip(quick_cols, quick_labels)):
-            with col:
-                if st.button(label, key=f"vp_quick_{i}", use_container_width=True):
-                    vp_quick = quick_days[i]
-
-        vp_date_col1, vp_date_col2 = st.columns(2)
-        with vp_date_col1:
-            default_vp_start = date.today() - timedelta(days=365*10)
-            if vp_quick:
-                default_vp_start = date.today() - timedelta(days=vp_quick)
-            vp_start = st.date_input("Od", value=default_vp_start, key="vp_start", min_value=date(1990,1,1), max_value=date.today())
-        with vp_date_col2:
-            vp_end = st.date_input("Do", value=date.today(), key="vp_end", min_value=date(1990,1,2), max_value=date.today())
+        vp_dc1, vp_dc2 = st.columns(2)
+        with vp_dc1:
+            vp_start = st.date_input("Od", value=date.today() - timedelta(days=365*10), key="vp_start", min_value=date(1950,1,1), max_value=date.today())
+        with vp_dc2:
+            vp_end = st.date_input("Do", value=date.today(), key="vp_end", min_value=date(1950,1,2), max_value=date.today())
 
     vp_run = st.button("🔍 Analizuj strefy wsparcia", type="primary", use_container_width=False, key="vp_run")
 
