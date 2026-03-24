@@ -203,6 +203,7 @@ with st.sidebar:
     pyramid_step = st.number_input("Pyramid step ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Add one contract every X$ drop from last entry")
     take_profit = st.number_input("Take Profit ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Close each contract X$ above its entry price")
     margin_per_contract = st.number_input("Margin / contract ($)", min_value=100.0, max_value=1000000.0, value=1500.0, step=100.0, format="%.0f", help="Broker margin requirement per contract")
+    commission_per_side = st.number_input("Commission / contract ($)", min_value=0.0, max_value=1000.0, value=2.50, step=0.50, format="%.2f", help="Broker commission per contract per side (entry + exit = 2×)")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Optimization ────────────────────────────────────────
@@ -286,15 +287,17 @@ with strategy_tab1:
                     margin_per_contract=margin_per_contract,
                     qty_per_entry=1,
                     point_value=point_value,
+                    commission_per_side=commission_per_side,
                 )
-            st.session_state["bt_df"]          = df_new
-            st.session_state["bt_result"]      = result_new
-            st.session_state["bt_symbol"]      = commodity_name
-            st.session_state["bt_start"]       = str(start_date)
-            st.session_state["bt_end"]         = str(end_date)
-            st.session_state["bt_margin"]      = margin_per_contract
-            st.session_state["bt_threshold"]   = entry_threshold
-            st.session_state["bt_point_value"] = point_value
+            st.session_state["bt_df"]              = df_new
+            st.session_state["bt_result"]          = result_new
+            st.session_state["bt_symbol"]          = commodity_name
+            st.session_state["bt_start"]           = str(start_date)
+            st.session_state["bt_end"]             = str(end_date)
+            st.session_state["bt_margin"]          = margin_per_contract
+            st.session_state["bt_threshold"]       = entry_threshold
+            st.session_state["bt_point_value"]     = point_value
+            st.session_state["bt_commission"]      = commission_per_side
 
     if "bt_result" not in st.session_state:
         st.markdown("""
@@ -314,9 +317,11 @@ with strategy_tab1:
 
         pnl_currency = "USD" if pv > 1.0 else "pts"
         pv_info = f"point value: {pv:.0f} $/pt" if pv > 1.0 else "continuous contract (PnL in price points)"
+        comm = st.session_state.get("bt_commission", 0.0)
+        comm_info = f"commission: ${comm:.2f}/side (${comm*2:.2f} round-trip per contract)" if comm > 0 else "no commission"
 
         st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} sessions · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} — PnL displayed in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} · {comm_info} — PnL in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
 
         # ── Metrics ────────────────────────────────────────────
         avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
@@ -602,6 +607,7 @@ with strategy_tab1:
                                 take_profit=round(float(tp_val), 4),
                                 margin_per_contract=margin_per_contract_disp,
                                 point_value=st.session_state.get("bt_point_value", 1.0),
+                                commission_per_side=st.session_state.get("bt_commission", 0.0),
                             )
                             opt_results.append({
                                 "Step ($)":        round(float(s), 2),

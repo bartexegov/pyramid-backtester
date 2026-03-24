@@ -165,7 +165,14 @@ def run_backtest(
     margin_per_contract: float,
     qty_per_entry: int = 1,
     point_value: float = 1.0,
+    commission_per_side: float = 0.0,
 ) -> BacktestResult:
+    """
+    commission_per_side: broker commission in USD per contract per side.
+    Total commission per round-trip = 2 * commission_per_side.
+    Deducted from PnL when the trade is closed.
+    Example: $2.50/side = $5.00 total cost per contract.
+    """
     """
     point_value: ile dolarow warta jest zmiana ceny o 1 punkt.
 
@@ -231,7 +238,8 @@ def run_backtest(
                 fill_price = bar_open
                 trade.exit_date  = date
                 trade.exit_price = fill_price
-                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry * point_value
+                round_trip_cost  = commission_per_side * 2 * qty_per_entry
+                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry * point_value - round_trip_cost
                 trade.days_open  = (date - trade.entry_date).days
                 trade.closed     = True
                 cumulative_pnl  += trade.pnl
@@ -247,7 +255,8 @@ def run_backtest(
             if bar_high >= trade.tp_price:
                 trade.exit_date  = date
                 trade.exit_price = trade.tp_price
-                trade.pnl        = (trade.tp_price - trade.entry_price) * qty_per_entry * point_value
+                round_trip_cost  = commission_per_side * 2 * qty_per_entry
+                trade.pnl        = (trade.tp_price - trade.entry_price) * qty_per_entry * point_value - round_trip_cost
                 trade.days_open  = (date - trade.entry_date).days
                 trade.closed     = True
                 cumulative_pnl  += trade.pnl
