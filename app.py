@@ -418,6 +418,10 @@ with strategy_tab1:
             # ── Metryki ────────────────────────────────────────
             avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
             pnl_pos = result.total_pnl >= 0
+            period_high = float(df["High"].max())
+            period_low  = float(df["Low"].min())
+            high_date   = str(df["High"].idxmax())[:10]
+            low_date    = str(df["Low"].idxmin())[:10]
             cards_html = '<div class="metric-grid">'
             cards_html += metric_card("Zysk / Strata", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} całkowity PnL", positive=pnl_pos)
             cards_html += metric_card("Transakcji", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
@@ -427,6 +431,8 @@ with strategy_tab1:
             cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract:,.0f}")
             cards_html += metric_card("Otwarte pozycje", str(result.open_trades), "niezamknięte na koniec")
             cards_html += metric_card("Śr. dni do TP", f"{result.avg_days_open:.0f}", "średni czas trzymania")
+            cards_html += metric_card("MAX HIGH okresu", f"${period_high:,.2f}", f"najwyższa cena · {high_date}")
+            cards_html += metric_card("MIN LOW okresu", f"${period_low:,.2f}", f"najniższa cena · {low_date}")
             cards_html += '</div>'
             st.markdown(cards_html, unsafe_allow_html=True)
 
