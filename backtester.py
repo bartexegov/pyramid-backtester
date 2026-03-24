@@ -65,6 +65,75 @@ COMMODITY_SYMBOLS = {
     "Nasdaq (NQ)":      "NQ=F",
 }
 
+# Mapowanie surowca -> prefiks symbolu + gielda dla konkretnych kontraktow
+COMMODITY_CONTRACT_INFO = {
+    "Corn (ZC)":        {"prefix": "ZC", "exchange": "CBT",  "months": "FHKNUZ",  "unit": "cents/bushel",  "contract_size": 5000,  "tick": 0.25, "tick_value": 12.50},
+    "Wheat (ZW)":       {"prefix": "ZW", "exchange": "CBT",  "months": "HKNUZ",   "unit": "cents/bushel",  "contract_size": 5000,  "tick": 0.25, "tick_value": 12.50},
+    "Soybeans (ZS)":    {"prefix": "ZS", "exchange": "CBT",  "months": "FHKNQUX", "unit": "cents/bushel",  "contract_size": 5000,  "tick": 0.25, "tick_value": 12.50},
+    "Crude Oil (CL)":   {"prefix": "CL", "exchange": "NYM",  "months": "FGHJKMNQUVXZ", "unit": "USD/bbl", "contract_size": 1000,  "tick": 0.01, "tick_value": 10.00},
+    "Natural Gas (NG)": {"prefix": "NG", "exchange": "NYM",  "months": "FGHJKMNQUVXZ", "unit": "USD/MMBtu","contract_size": 10000, "tick": 0.001,"tick_value": 10.00},
+    "Gold (GC)":        {"prefix": "GC", "exchange": "CMX",  "months": "GJMQVZ",  "unit": "USD/oz",        "contract_size": 100,   "tick": 0.10, "tick_value": 10.00},
+    "Silver (SI)":      {"prefix": "SI", "exchange": "CMX",  "months": "HKNUZ",   "unit": "cents/oz",      "contract_size": 5000,  "tick": 0.005,"tick_value": 25.00},
+    "Copper (HG)":      {"prefix": "HG", "exchange": "CMX",  "months": "HKNUZ",   "unit": "cents/lb",      "contract_size": 25000, "tick": 0.0005,"tick_value":12.50},
+    "S&P 500 (ES)":     {"prefix": "ES", "exchange": "CME",  "months": "HMUZ",    "unit": "USD/index",     "contract_size": 50,    "tick": 0.25, "tick_value": 12.50},
+    "Nasdaq (NQ)":      {"prefix": "NQ", "exchange": "CME",  "months": "HMUZ",    "unit": "USD/index",     "contract_size": 20,    "tick": 0.25, "tick_value":  5.00},
+}
+
+# Mapowanie litery miesiaca na nazwe
+MONTH_CODES = {
+    "F": ("Sty", 1), "G": ("Lut", 2), "H": ("Mar", 3), "J": ("Kwi", 4),
+    "K": ("Maj", 5), "M": ("Cze", 6), "N": ("Lip", 7), "Q": ("Sie", 8),
+    "U": ("Wrz", 9), "V": ("Paz",10), "X": ("Lis",11), "Z": ("Gru",12),
+}
+
+
+def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
+    """
+    Pobiera dostepne konkretne kontrakty dla danego surowca z Yahoo Finance.
+    Zwraca liste slownikow: {symbol, name, price, expiry, open_interest}
+    posortowanych po dacie wygasniecia.
+    """
+    import yfinance as yf
+    from datetime import date, timedelta
+
+    info = COMMODITY_CONTRACT_INFO.get(commodity_name)
+    if not info:
+        return []
+
+    prefix   = info["prefix"]
+    exchange = info["exchange"]
+    months   = info["months"]
+
+    today      = date.today()
+    results    = []
+    years_back = 1
+
+    for year_offset in range(-years_back, years_ahead + 1):
+        yr = today.year + year_offset
+        yr2 = str(yr)[-2:]
+        for month_code in months:
+            symbol = f"{prefix}{month_code}{yr2}.{exchange}"
+            try:
+                t    = yf.Ticker(symbol)
+                inf  = t.info
+                price = inf.get("regularMarketPrice")
+                expiry = inf.get("expireIsoDate", "")
+                oi     = inf.get("openInterest", 0)
+                if price and price > 0 and expiry:
+                    month_name = MONTH_CODES.get(month_code, ("?", 0))[0]
+                    results.append({
+                        "symbol":        symbol,
+                        "name":          f"{prefix} {month_name}-{yr} ({month_code}{yr2})",
+                        "price":         price,
+                        "expiry":        expiry[:10],
+                        "open_interest": oi or 0,
+                    })
+            except Exception:
+                pass
+
+    results.sort(key=lambda x: x["expiry"])
+    return results
+
 
 # ─────────────────────────────────────────────────────────────
 # Pobieranie danych

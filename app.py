@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date, timedelta
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, find_support_zones, compute_volume_profile
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, get_available_contracts, find_support_zones, compute_volume_profile
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -292,8 +292,46 @@ with st.sidebar:
     # ── Instrument ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Instrument</div>', unsafe_allow_html=True)
     commodity_name = st.selectbox("Surowiec", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
-    symbol = COMMODITY_SYMBOLS[commodity_name]
-    st.caption(f"Symbol: `{symbol}`")
+
+    # Tryb: kontrakt ciagly vs konkretny
+    contract_mode = st.radio("Typ kontraktu", ["Ciągły (=F)", "Konkretny miesiąc"], horizontal=True, label_visibility="collapsed")
+
+    if contract_mode == "Ciągły (=F)":
+        symbol = COMMODITY_SYMBOLS[commodity_name]
+        st.caption(f"Symbol: `{symbol}` — automatyczny rollover na front month")
+    else:
+        # Pobierz dostepne kontrakty
+        contract_info = COMMODITY_CONTRACT_INFO.get(commodity_name)
+        if contract_info is None:
+            st.warning("Brak danych kontraktów dla tego instrumentu.")
+            symbol = COMMODITY_SYMBOLS[commodity_name]
+        else:
+            with st.spinner("Pobieranie dostępnych kontraktów..."):
+                contracts = get_available_contracts(commodity_name, years_ahead=2)
+
+            if not contracts:
+                st.warning("Nie znaleziono aktywnych kontraktów. Używam kontraktu ciągłego.")
+                symbol = COMMODITY_SYMBOLS[commodity_name]
+            else:
+                # Przygotuj etykiety dla selectbox
+                contract_labels = []
+                for c in contracts:
+                    oi_str = f"{c['open_interest']:,}" if c['open_interest'] else "?"
+                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  wygasa {c['expiry']}  |  OI: {oi_str}")
+
+                selected_label = st.selectbox("Wybierz kontrakt", contract_labels, label_visibility="collapsed")
+                selected_idx = contract_labels.index(selected_label)
+                selected = contracts[selected_idx]
+                symbol = selected["symbol"]
+
+                # Szczegoly kontraktu
+                ci = COMMODITY_CONTRACT_INFO[commodity_name]
+                st.caption(f"Symbol: `{symbol}`")
+                detail1 = f"Wygasa: {selected['expiry']}  |  OI: {selected['open_interest']:,}"
+                detail2 = f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Rozmiar: {ci['contract_size']:,} {ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'}"
+                st.caption(detail1)
+                st.caption(detail2)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Okres ───────────────────────────────────────────────
