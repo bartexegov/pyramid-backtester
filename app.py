@@ -107,6 +107,7 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         rank_cls = {1: "rank-1", 2: "rank-2", 3: "rank-3"}.get(rank, "")
         pnl = row["PnL ($)"]
         pnl_cls = "pnl-pos" if pnl >= 0 else "pnl-neg"
+        comm_val = row.get("Total comm ($)", 0.0) if hasattr(row, "get") else row["Total comm ($)"] if "Total comm ($)" in row.index else 0.0
         rows_html += f"""
         <tr>
             <td><span class="rank-badge {rank_cls}">{rank}</span></td>
@@ -117,6 +118,7 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <td>{row['Closed (TP)']}</td>
             <td>{row['Open']}</td>
             <td>{row['Win %']:.1f}%</td>
+            <td>${comm_val:,.2f}</td>
             <td>{row['Max contr.']}</td>
             <td>${row['Max capital ($)']:,}</td>
             <td>{row['Avg days']} d</td>
@@ -128,8 +130,9 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <th>PnL</th>
             <th title="Total contracts bought">Entries</th>
             <th title="Contracts closed by TP">Closed (TP)</th>
-            <th title="Still open at end of period">Open</th>
+            <th title="Still open at end">Open</th>
             <th>Win %</th>
+            <th title="(Entries + Closed) x commission">Commission</th>
             <th>Max contr.</th><th>Max capital</th><th>Avg days</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
@@ -617,6 +620,8 @@ with strategy_tab1:
                                 point_value=st.session_state.get("bt_point_value", 1.0),
                                 commission_per_side=st.session_state.get("bt_commission", 0.0),
                             )
+                            total_ops = len(r.trades) + r.total_trades  # entries + exits
+                            comm_cost = st.session_state.get("bt_commission", 0.0) * total_ops
                             opt_results.append({
                                 "Step ($)":        round(float(s), 2),
                                 "TP ($)":          round(float(tp_val), 2),
@@ -625,6 +630,7 @@ with strategy_tab1:
                                 "Closed (TP)":     r.total_trades,
                                 "Open":            r.open_trades,
                                 "Win %":           round(r.win_rate, 1),
+                                "Total comm ($)":  round(comm_cost, 2),
                                 "Max contr.":      r.max_concurrent,
                                 "Max capital ($)": int(r.max_capital_needed),
                                 "Avg days":        int(r.avg_days_open),
@@ -650,7 +656,7 @@ with strategy_tab1:
                                     <div class="combo-params">Step {row['Step ($)']}$ / TP {row['TP ($)']}$</div>
                                     <div class="combo-pnl {pnl_cls}">${row['PnL ($)']:,.2f}</div>
                                     <div class="combo-stats">
-                                        {row['Trades']} trades · Win {row['Win %']}%<br>
+                                        {row['Entries']} entries · {row['Closed (TP)']} closed · Win {row['Win %']}%<br>
                                         Max {row['Max contr.']} contr. · ${row['Max capital ($)']:,}
                                     </div>
                                 </div>
