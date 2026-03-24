@@ -186,9 +186,31 @@ def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
 # Pobieranie danych
 # ─────────────────────────────────────────────────────────────
 
-def fetch_data(symbol: str, start, end) -> pd.DataFrame:
+TIMEFRAME_INTERVALS = {
+    "1 hour (1h)":   "1h",
+    "Daily (1d)":    "1d",
+    "Weekly (1w)":   "1wk",
+}
+
+# Yahoo Finance limits for each interval
+TIMEFRAME_LIMITS = {
+    "1h":  "⚠ Yahoo Finance: max ~60 days of 1h data.",
+    "1d":  None,
+    "1wk": None,
+}
+
+
+def fetch_data(symbol: str, start, end, interval: str = "1d") -> pd.DataFrame:
+    """
+    Fetch OHLCV data from Yahoo Finance.
+    interval: '1h', '1d', '1wk'
+    Note: Yahoo limits 1h data to ~60 days regardless of start/end.
+    """
     try:
-        df = yf.download(symbol, start=start, end=end, interval="1d", auto_adjust=True, progress=False)
+        df = yf.download(
+            symbol, start=start, end=end,
+            interval=interval, auto_adjust=True, progress=False
+        )
         if df.empty:
             return pd.DataFrame()
         if isinstance(df.columns, pd.MultiIndex):

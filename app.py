@@ -10,7 +10,7 @@ import plotly.express as px
 from datetime import date, timedelta
 import collections
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, get_available_contracts, find_support_zones, compute_volume_profile
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -202,11 +202,27 @@ with st.sidebar:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Timeframe ────────────────────────────────────────────
+    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Timeframe</div>', unsafe_allow_html=True)
+    tf_label = st.radio("Timeframe", list(TIMEFRAME_INTERVALS.keys()), index=1, horizontal=True, label_visibility="collapsed")
+    tf_interval = TIMEFRAME_INTERVALS[tf_label]
+    tf_warning  = TIMEFRAME_LIMITS.get(tf_interval)
+    if tf_warning:
+        st.warning(tf_warning)
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # ── Date range ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Backtest period</div>', unsafe_allow_html=True)
+    # Default date range based on timeframe
+    if tf_interval == "1h":
+        default_start = date.today() - timedelta(days=59)
+    elif tf_interval == "1wk":
+        default_start = date.today() - timedelta(days=365*5)
+    else:
+        default_start = date.today() - timedelta(days=365*2)
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("From", value=date.today() - timedelta(days=365*2), min_value=date(2000,1,1), max_value=date.today())
+        start_date = st.date_input("From", value=default_start, min_value=date(2000,1,1), max_value=date.today())
     with col2:
         end_date = st.date_input("To", value=date.today(), min_value=date(2000,1,2), max_value=date.today())
     st.markdown('</div>', unsafe_allow_html=True)
@@ -286,7 +302,7 @@ with strategy_tab1:
         df_new = None
         with st.spinner(f"Fetching data for {commodity_name}..."):
             try:
-                df_new = fetch_data(symbol, start=start_date, end=end_date)
+                df_new = fetch_data(symbol, start=start_date, end=end_date, interval=tf_interval)
             except Exception as e:
                 st.error(f"Data fetch error: {e}")
         if df_new is None or df_new.empty:
@@ -312,6 +328,8 @@ with strategy_tab1:
             st.session_state["bt_threshold"]       = entry_threshold
             st.session_state["bt_point_value"]     = point_value
             st.session_state["bt_commission"]      = commission_per_side
+            st.session_state["bt_tf_label"]        = tf_label
+            st.session_state["bt_tf_interval"]     = tf_interval
 
     if "bt_result" not in st.session_state:
         st.markdown("""
@@ -328,13 +346,16 @@ with strategy_tab1:
         margin_per_contract_disp = st.session_state["bt_margin"]
         entry_threshold_disp     = st.session_state["bt_threshold"]
         pv                       = st.session_state.get("bt_point_value", 1.0)
+        tf_label_disp            = st.session_state.get("bt_tf_label", "Daily (1d)")
+        tf_interval_disp         = st.session_state.get("bt_tf_interval", "1d")
 
         pnl_currency = "USD" if pv > 1.0 else "pts"
         pv_info = f"point value: {pv:.0f} $/pt" if pv > 1.0 else "continuous contract (PnL in price points)"
         comm = st.session_state.get("bt_commission", 0.0)
         comm_info = f"commission: ${comm:.2f}/side (${comm*2:.2f} round-trip per contract)" if comm > 0 else "no commission"
 
-        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} sessions · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
+        bar_label = {"1h": "bars (1h)", "1d": "sessions (daily)", "1wk": "weeks"}.get(tf_interval_disp, "bars")
+        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} {bar_label} · {tf_label_disp} · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} · {comm_info} — PnL in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
 
         # ── Metrics ────────────────────────────────────────────
@@ -382,7 +403,7 @@ with strategy_tab1:
                     template="plotly_dark", height=360,
                     margin=dict(l=0,r=0,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    title=dict(text="Equity Curve — cumulative PnL", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"Equity Curve — cumulative PnL ({tf_label_disp})", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_eq, use_container_width=True)
@@ -403,7 +424,7 @@ with strategy_tab1:
                     template="plotly_dark", height=360,
                     margin=dict(l=0,r=0,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    title=dict(text="Number of open contracts over time", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"Open contracts over time ({tf_label_disp})", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_open, use_container_width=True)
@@ -475,7 +496,7 @@ with strategy_tab1:
                     margin=dict(l=0, r=0, t=24, b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name_disp} — price with signals (hover for details)", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] — price with signals (hover for details)", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"),
                     yaxis=dict(gridcolor="#1e293b"),
                     legend=dict(orientation="h", y=1.02, x=0, font=dict(color="#94a3b8")),
