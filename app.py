@@ -501,24 +501,51 @@ with strategy_tab1:
                 ))
                 fig_p.add_hline(y=entry_threshold_disp, line_dash="dash", line_color="#f87171", line_width=1.5,
                     annotation_text=f"Próg: {entry_threshold_disp}", annotation_position="right")
+
+                # Grupuj wejscia per bar — pokaz liczbe kontraktow jako etykiete
+                import collections
+                entry_groups = collections.defaultdict(list)
+                for t in result.trades:
+                    entry_groups[t.entry_date].append(t.entry_price)
+                ex = list(entry_groups.keys())
+                ey = [sum(v)/len(v) for v in entry_groups.values()]
+                ecnt = [len(v) for v in entry_groups.values()]
+                etxt = [f"+{c}" if c > 1 else "" for c in ecnt]
+                esize = [8 + min(c*3, 20) for c in ecnt]
                 fig_p.add_trace(go.Scatter(
-                    x=[t.entry_date for t in result.trades],
-                    y=[t.entry_price for t in result.trades],
-                    mode="markers", name="Kupno",
-                    marker=dict(symbol="triangle-up", size=9, color="#34d399"),
+                    x=ex, y=ey, mode="markers+text", name="Kupno",
+                    text=etxt, textposition="bottom center",
+                    textfont=dict(color="#34d399", size=10),
+                    marker=dict(symbol="triangle-up", size=esize, color="#34d399"),
+                    customdata=ecnt,
+                    hovertemplate="Kupno: %{y:.2f}$<br>Kontraktów: %{customdata}<extra></extra>",
                 ))
+
+                # Grupuj TP per bar — pokaz liczbe kontraktow jako etykiete
+                tp_groups = collections.defaultdict(list)
+                for t in result.trades:
+                    if t.closed:
+                        tp_groups[t.exit_date].append(t.exit_price)
+                tx = list(tp_groups.keys())
+                ty = [sum(v)/len(v) for v in tp_groups.values()]
+                tcnt = [len(v) for v in tp_groups.values()]
+                ttxt = [f"x{c}" if c > 1 else "" for c in tcnt]
+                tsize = [8 + min(c*3, 20) for c in tcnt]
                 fig_p.add_trace(go.Scatter(
-                    x=[t.exit_date for t in result.trades if t.closed],
-                    y=[t.exit_price for t in result.trades if t.closed],
-                    mode="markers", name="TP",
-                    marker=dict(symbol="triangle-down", size=9, color="#fbbf24"),
+                    x=tx, y=ty, mode="markers+text", name="TP",
+                    text=ttxt, textposition="top center",
+                    textfont=dict(color="#fbbf24", size=10),
+                    marker=dict(symbol="triangle-down", size=tsize, color="#fbbf24"),
+                    customdata=tcnt,
+                    hovertemplate="TP: %{y:.2f}$<br>Kontraktów: %{customdata}<extra></extra>",
                 ))
+
                 fig_p.update_layout(
                     template="plotly_dark", height=460,
                     margin=dict(l=0,r=0,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name} — wejścia i wyjścia", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"{commodity_name} — wejścia i wyjścia (rozmiar = liczba kontraktów)", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
