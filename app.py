@@ -107,7 +107,8 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         rank_cls = {1: "rank-1", 2: "rank-2", 3: "rank-3"}.get(rank, "")
         pnl = row["PnL ($)"]
         pnl_cls = "pnl-pos" if pnl >= 0 else "pnl-neg"
-        comm_val = row.get("Total comm ($)", 0.0) if hasattr(row, "get") else row["Total comm ($)"] if "Total comm ($)" in row.index else 0.0
+        ops_val  = row["Total ops"]       if "Total ops"       in row.index else row.get("Total ops", 0)
+        comm_val = row["Total comm ($)"]  if "Total comm ($)"  in row.index else row.get("Total comm ($)", 0.0)
         rows_html += f"""
         <tr>
             <td><span class="rank-badge {rank_cls}">{rank}</span></td>
@@ -117,8 +118,9 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <td>{row['Entries']}</td>
             <td>{row['Closed (TP)']}</td>
             <td>{row['Open']}</td>
+            <td style="color:#fbbf24;font-weight:700">{ops_val}</td>
             <td>{row['Win %']:.1f}%</td>
-            <td>${comm_val:,.2f}</td>
+            <td style="color:#f87171">${comm_val:,.2f}</td>
             <td>{row['Max contr.']}</td>
             <td>${row['Max capital ($)']:,}</td>
             <td>{row['Avg days']} d</td>
@@ -128,11 +130,12 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         <thead><tr>
             <th>#</th><th>Step</th><th>TP</th>
             <th>PnL</th>
-            <th title="Total contracts bought">Entries</th>
-            <th title="Contracts closed by TP">Closed (TP)</th>
+            <th title="Total contracts bought">Buys</th>
+            <th title="Contracts closed by TP">Sells (TP)</th>
             <th title="Still open at end">Open</th>
+            <th title="Buys + Sells = total broker interactions" style="color:#fbbf24">Total ops</th>
             <th>Win %</th>
-            <th title="(Entries + Closed) x commission">Commission</th>
+            <th title="Total ops x commission/side" style="color:#f87171">Commission</th>
             <th>Max contr.</th><th>Max capital</th><th>Avg days</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
@@ -343,10 +346,13 @@ with strategy_tab1:
         if True:
             cards_html = '<div class="metric-grid">'
             total_comm_paid = getattr(result, "total_commission", 0.0)
+            total_entries   = len(result.trades)
+            total_exits     = result.total_trades
+            total_ops       = total_entries + total_exits
             cards_html += metric_card("Total PnL", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} after commissions", positive=pnl_pos)
-            cards_html += metric_card("Total commission", f"${total_comm_paid:,.2f}", f"entry + exit · {result.total_trades} trades")
-            cards_html += metric_card("Closed trades", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
-            cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "% of winning trades", positive=result.win_rate >= 50)
+            cards_html += metric_card("Total commission", f"${total_comm_paid:,.2f}", f"{total_ops} ops × ${comm:.2f}")
+            cards_html += metric_card("Total operations", str(total_ops), f"{total_entries} buys + {total_exits} sells (TP)")
+            cards_html += metric_card("Closed trades", str(total_exits), f"{result.winning_trades}W / {result.losing_trades}L")
             cards_html += metric_card("Avg PnL / trade", f"${avg_pnl:.2f}", "per closed contract", positive=avg_pnl >= 0)
             cards_html += metric_card("Max contracts", str(result.max_concurrent), "open simultaneously")
             cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f}")
@@ -620,15 +626,19 @@ with strategy_tab1:
                                 point_value=st.session_state.get("bt_point_value", 1.0),
                                 commission_per_side=st.session_state.get("bt_commission", 0.0),
                             )
-                            total_ops = len(r.trades) + r.total_trades  # entries + exits
-                            comm_cost = st.session_state.get("bt_commission", 0.0) * total_ops
+                            r_entries  = len(r.trades)
+                            r_exits    = r.total_trades
+                            r_ops      = r_entries + r_exits
+                            r_comm     = st.session_state.get("bt_commission", 0.0)
+                            comm_cost  = r_comm * r_ops
                             opt_results.append({
                                 "Step ($)":        round(float(s), 2),
                                 "TP ($)":          round(float(tp_val), 2),
                                 "PnL ($)":         round(r.total_pnl, 2),
-                                "Entries":         len(r.trades),
-                                "Closed (TP)":     r.total_trades,
+                                "Entries":         r_entries,
+                                "Closed (TP)":     r_exits,
                                 "Open":            r.open_trades,
+                                "Total ops":       r_ops,
                                 "Win %":           round(r.win_rate, 1),
                                 "Total comm ($)":  round(comm_cost, 2),
                                 "Max contr.":      r.max_concurrent,
