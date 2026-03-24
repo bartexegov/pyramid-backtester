@@ -109,13 +109,50 @@ def run_backtest(
 
     for i in range(len(df)):
         date      = df.index[i]
+        bar_open  = float(df["Open"].iloc[i])
         bar_high  = float(df["High"].iloc[i])
         bar_low   = float(df["Low"].iloc[i])
         bar_close = float(df["Close"].iloc[i])
 
-        # ── Krok 1: Realizuj TP dla otwartych pozycji ────────────────────────
-        # Gdy High baru dotyka TP danego kontraktu — zamknij go
+        # ══════════════════════════════════════════════════════════════════════
+        # LOGIKA GAPOW
+        #
+        # Gap w gore (bar_open > prev_close):
+        #   Cena otwiera sie wyzej niz zamknela — jezeli Open przebija przez
+        #   poziomy TP, wszystkie takie TP realizuja sie po cenie Open (nie po
+        #   swojej indywidualnej cenie TP). To realistyczne — order TP nie
+        #   zdazyл sie wypelnic przed otwarciem nowej sesji.
+        #
+        # Gap w dol (bar_open < prev_close):
+        #   Cena otwiera sie nizej — jezeli Open przeskakuje przez poziomy
+        #   dokupowania, wszystkie aktywowane zakupy realizuja sie po cenie
+        #   Open (jeden fill po gorzej cenie). Realistyczne odwzorowanie
+        #   zlecen stop-limit przy gapie.
+        #
+        # Bez gapu: normalna logika intrabar (High dla TP, Low dla wejsc).
+        # ══════════════════════════════════════════════════════════════════════
+
+        # ── Krok 1a: TP przez gap w gore ─────────────────────────────────────
+        # Jezeli Open > TP danego kontraktu — zamknij po cenie Open (nie TP)
         still_open: List[Trade] = []
+        for trade in open_trades:
+            if bar_open >= trade.tp_price:
+                # Gap w gore przeskoczyl TP — fill po cenie otwarcia
+                fill_price = bar_open
+                trade.exit_date  = date
+                trade.exit_price = fill_price
+                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry
+                trade.days_open  = (date - trade.entry_date).days
+                trade.closed     = True
+                cumulative_pnl  += trade.pnl
+                total_pnl       += trade.pnl
+            else:
+                still_open.append(trade)
+
+        open_trades = still_open
+
+        # ── Krok 1b: TP normalny (intrabar — High dotyka TP) ─────────────────
+        still_open2: List[Trade] = []
         for trade in open_trades:
             if bar_high >= trade.tp_price:
                 trade.exit_date  = date
@@ -126,43 +163,63 @@ def run_backtest(
                 cumulative_pnl  += trade.pnl
                 total_pnl       += trade.pnl
             else:
-                still_open.append(trade)
+                still_open2.append(trade)
 
-        open_trades = still_open
+        open_trades = still_open2
 
         # ── Krok 2: Aktualizuj last_entry_price po TP ────────────────────────
-        # Po zamknieciu niektorych kontraktow przez TP, last_entry_price musi
-        # wskazywac na NAJNIZSZA cene wsrod pozostalych otwartych kontraktow.
-        # Dzieki temu kolejne dokupowanie liczy sie od faktycznie najnizszego
-        # otwartego kontraktu, a nie od starej wartosci sprzed TP.
         if len(open_trades) == 0:
             last_entry_price = None
         else:
             last_entry_price = min(t.entry_price for t in open_trades)
 
-        # ── Krok 3: Nowe wejscia ──────────────────────────────────────────────
-        # Warunek wejscia: cena (Low) musi byc ponizej progu wejscia
-        # Dotyczy zarowno pierwszego wejscia jak i dokupowania
-        # Po realizacji TP i resecie — strategia startuje od nowa
+        # ── Krok 3: Wejscia — gap w dol + normalne intrabar ──────────────────
+        #
+        # Kolejnosc sprawdzania:
+        #   1. Czy jest gap w dol? (Open < last_entry - step)
+        #      -> policz ile poziomow przeskoczono, kup WSZYSTKIE po cenie Open
+        #      -> ustaw last_entry_price na najnizszy aktywowany poziom
+        #   2. Czy Low spada dalej ponizej last_entry - step? (normalne ruchy)
+        #      -> kup kolejne poziomy po ich indywidualnych cenach
+        #
+        # Dzieki temu gap powoduje jeden fill po cenie Open dla wszystkich
+        # przeskoczonych poziomow, a potem normalne dokupowanie przy dalszym
+        # spadku w ciagu sesji.
 
         if bar_low < entry_threshold:
+
+            # -- Pierwsze wejscie (brak pozycji) --
             if len(open_trades) == 0:
-                # Pierwsze wejscie w nowej kampanii
-                tp_px = bar_close + take_profit
-                trade = Trade(
-                    level       = 1,
-                    entry_date  = date,
-                    entry_price = bar_close,
-                    tp_price    = tp_px,
-                )
+                fill_px = bar_open if bar_open < entry_threshold else bar_close
+                tp_px   = fill_px + take_profit
+                trade = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=tp_px)
                 open_trades.append(trade)
                 trades.append(trade)
-                last_entry_price = bar_close
+                last_entry_price = fill_px
 
-            elif last_entry_price is not None:
-                # Dokupowanie: cena spadla o kolejny krok od ostatniego kupna
-                # Mozna dokupic wiele razy w jednym barze jesli bar jest duzy
-                # (petla az do wyczerpania krokow w zasegu baru)
+            # -- Dokupowanie (jestesmy juz w pozycji) --
+            if len(open_trades) > 0 and last_entry_price is not None:
+
+                # GAP W DOL: Open przeskoczyl przez co najmniej jeden poziom
+                # Kup wszystkie przeskoczone poziomy po cenie Open
+                if bar_open < last_entry_price - pyramid_step:
+                    fill_px      = bar_open
+                    next_trigger = last_entry_price - pyramid_step
+                    while next_trigger >= bar_open:
+                        tp_px = next_trigger + take_profit
+                        trade = Trade(
+                            level       = len(open_trades) + 1,
+                            entry_date  = date,
+                            entry_price = fill_px,   # fill po cenie Open
+                            tp_price    = tp_px,
+                        )
+                        open_trades.append(trade)
+                        trades.append(trade)
+                        last_entry_price = next_trigger  # sledz logiczny poziom
+                        next_trigger     = last_entry_price - pyramid_step
+
+                # NORMALNE INTRABAR: Low spada przez kolejne poziomy
+                # Kup kazdy poziom po jego indywidualnej cenie
                 next_trigger = last_entry_price - pyramid_step
                 while bar_low <= next_trigger:
                     tp_px = next_trigger + take_profit
