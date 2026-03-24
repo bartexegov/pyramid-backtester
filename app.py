@@ -332,6 +332,16 @@ with st.sidebar:
                 st.caption(detail1)
                 st.caption(detail2)
 
+    # Oblicz point_value dla wybranego instrumentu
+    # point_value = ile $ warta jest zmiana ceny o 1 punkt
+    # = tick_value / tick_size
+    # Dla kontraktu ciaglego bez pelnej specyfikacji — point_value=1.0
+    _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
+    if _ci and contract_mode == "Konkretny miesiąc":
+        point_value = _ci["tick_value"] / _ci["tick"]
+    else:
+        point_value = 1.0
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Okres ───────────────────────────────────────────────
@@ -437,14 +447,16 @@ with strategy_tab1:
                     take_profit=take_profit,
                     margin_per_contract=margin_per_contract,
                     qty_per_entry=1,
+                    point_value=point_value,
                 )
-            st.session_state["bt_df"]     = df_new
-            st.session_state["bt_result"] = result_new
-            st.session_state["bt_symbol"] = commodity_name
-            st.session_state["bt_start"]  = str(start_date)
-            st.session_state["bt_end"]    = str(end_date)
-            st.session_state["bt_margin"] = margin_per_contract
-            st.session_state["bt_threshold"] = entry_threshold
+            st.session_state["bt_df"]          = df_new
+            st.session_state["bt_result"]      = result_new
+            st.session_state["bt_symbol"]      = commodity_name
+            st.session_state["bt_start"]       = str(start_date)
+            st.session_state["bt_end"]         = str(end_date)
+            st.session_state["bt_margin"]      = margin_per_contract
+            st.session_state["bt_threshold"]   = entry_threshold
+            st.session_state["bt_point_value"] = point_value
 
     # Renderuj wyniki z session_state (przetrwają każdy rerun)
     if "bt_result" not in st.session_state:
@@ -458,11 +470,17 @@ with strategy_tab1:
     else:
         df     = st.session_state["bt_df"]
         result = st.session_state["bt_result"]
-        commodity_name_disp  = st.session_state["bt_symbol"]
+        commodity_name_disp      = st.session_state["bt_symbol"]
         margin_per_contract_disp = st.session_state["bt_margin"]
-        entry_threshold_disp = st.session_state["bt_threshold"]
+        entry_threshold_disp     = st.session_state["bt_threshold"]
+        pv                       = st.session_state.get("bt_point_value", 1.0)
 
-        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(df)} sesji · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
+        # Etykieta PnL — rozni sie w zaleznosci od point_value
+        pnl_currency = "USD" if pv > 1.0 else "pkt"
+        pv_info = f"point value: {pv:.0f} $/pkt" if pv > 1.0 else "kontrakt ciagly (PnL w punktach)"
+
+        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} sesji · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} — PnL wyświetlany w <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
 
         # ── Metryki ────────────────────────────────────────────
         avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
@@ -780,6 +798,7 @@ with strategy_tab1:
                                 pyramid_step=round(float(s), 4),
                                 take_profit=round(float(tp_val), 4),
                                 margin_per_contract=margin_per_contract_disp,
+                                point_value=st.session_state.get("bt_point_value", 1.0),
                             )
                             opt_results.append({
                                 "Krok ($)":        round(float(s), 2),

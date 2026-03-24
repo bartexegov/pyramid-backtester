@@ -164,7 +164,28 @@ def run_backtest(
     take_profit: float,
     margin_per_contract: float,
     qty_per_entry: int = 1,
+    point_value: float = 1.0,
 ) -> BacktestResult:
+    """
+    point_value: ile dolarow warta jest zmiana ceny o 1 punkt.
+
+    Przyklad dla ZC (Corn Futures):
+      Cena w cents/bushel, kontrakt = 5000 busheli
+      1 cent/bushel = 5000 * 0.01 = $50 per kontrakt
+      Ale ceny sa w cents, wiec 1 punkt ceny = 1 cent = $50
+      point_value = 50.0
+
+    Przyklad ogolny:
+      point_value = tick_value / tick_size
+      ZC: 12.50 / 0.25 = 50.0
+      CL: 10.00 / 0.01 = 1000.0
+      GC: 10.00 / 0.10 = 100.0
+      ES: 12.50 / 0.25 = 50.0
+
+    Gdy uzywamy kontraktu ciaglego (=F) bez znanych szczegolach
+    kontraktu, point_value=1.0 oznacza ze PnL jest w punktach ceny
+    (nie w dolarach).
+    """
 
     trades: List[Trade] = []
     open_trades: List[Trade] = []
@@ -210,7 +231,7 @@ def run_backtest(
                 fill_price = bar_open
                 trade.exit_date  = date
                 trade.exit_price = fill_price
-                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry
+                trade.pnl        = (fill_price - trade.entry_price) * qty_per_entry * point_value
                 trade.days_open  = (date - trade.entry_date).days
                 trade.closed     = True
                 cumulative_pnl  += trade.pnl
@@ -226,7 +247,7 @@ def run_backtest(
             if bar_high >= trade.tp_price:
                 trade.exit_date  = date
                 trade.exit_price = trade.tp_price
-                trade.pnl        = (trade.tp_price - trade.entry_price) * qty_per_entry
+                trade.pnl        = (trade.tp_price - trade.entry_price) * qty_per_entry * point_value
                 trade.days_open  = (date - trade.entry_date).days
                 trade.closed     = True
                 cumulative_pnl  += trade.pnl
@@ -340,6 +361,7 @@ def run_backtest(
             "take_profit":         take_profit,
             "margin_per_contract": margin_per_contract,
             "qty_per_entry":       qty_per_entry,
+            "point_value":         point_value,
         },
     )
 
