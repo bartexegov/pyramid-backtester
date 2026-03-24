@@ -108,12 +108,13 @@ def run_backtest(
     equity_curve = pd.Series(0.0, index=df.index)
 
     for i in range(len(df)):
-        date = df.index[i]
+        date      = df.index[i]
         bar_high  = float(df["High"].iloc[i])
         bar_low   = float(df["Low"].iloc[i])
         bar_close = float(df["Close"].iloc[i])
 
-        # Sprawdz TP dla otwartych pozycji
+        # ── Krok 1: Realizuj TP dla otwartych pozycji ────────────────────────
+        # Gdy High baru dotyka TP danego kontraktu — zamknij go
         still_open: List[Trade] = []
         for trade in open_trades:
             if bar_high >= trade.tp_price:
@@ -129,29 +130,23 @@ def run_backtest(
 
         open_trades = still_open
 
+        # ── Krok 2: Reset last_entry_price gdy wszystkie kontrakty zamkniete ─
+        # Jezeli nie ma zadnych otwartych kontraktow — reset pozwala na
+        # nowe wejscie przy kolejnym spadku ponizej progu
         if len(open_trades) == 0:
             last_entry_price = None
 
-        # Pierwsze wejscie
-        if len(open_trades) == 0 and bar_low < entry_threshold:
-            tp_px = bar_close + take_profit
-            trade = Trade(
-                level       = 1,
-                entry_date  = date,
-                entry_price = bar_close,
-                tp_price    = tp_px,
-            )
-            open_trades.append(trade)
-            trades.append(trade)
-            last_entry_price = bar_close
+        # ── Krok 3: Nowe wejscia ──────────────────────────────────────────────
+        # Warunek wejscia: cena (Low) musi byc ponizej progu wejscia
+        # Dotyczy zarowno pierwszego wejscia jak i dokupowania
+        # Po realizacji TP i resecie — strategia startuje od nowa
 
-        # Kolejne wejscia (pyramiding)
-        elif len(open_trades) > 0 and last_entry_price is not None:
-            next_trigger = last_entry_price - pyramid_step
-            if bar_low <= next_trigger:
+        if bar_low < entry_threshold:
+            if len(open_trades) == 0:
+                # Pierwsze wejscie w nowej kampanii
                 tp_px = bar_close + take_profit
                 trade = Trade(
-                    level       = len(open_trades) + 1,
+                    level       = 1,
                     entry_date  = date,
                     entry_price = bar_close,
                     tp_price    = tp_px,
@@ -160,7 +155,25 @@ def run_backtest(
                 trades.append(trade)
                 last_entry_price = bar_close
 
-        # Statystyki dzienne
+            elif last_entry_price is not None:
+                # Dokupowanie: cena spadla o kolejny krok od ostatniego kupna
+                # Mozna dokupic wiele razy w jednym barze jesli bar jest duzy
+                # (petla az do wyczerpania krokow w zasegu baru)
+                next_trigger = last_entry_price - pyramid_step
+                while bar_low <= next_trigger:
+                    tp_px = next_trigger + take_profit
+                    trade = Trade(
+                        level       = len(open_trades) + 1,
+                        entry_date  = date,
+                        entry_price = next_trigger,
+                        tp_price    = tp_px,
+                    )
+                    open_trades.append(trade)
+                    trades.append(trade)
+                    last_entry_price = next_trigger
+                    next_trigger     = last_entry_price - pyramid_step
+
+        # ── Krok 4: Statystyki dzienne ────────────────────────────────────────
         current_open = len(open_trades)
         daily_open.iloc[i] = current_open
         if current_open > max_concurrent:
