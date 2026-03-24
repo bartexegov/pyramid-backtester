@@ -493,60 +493,89 @@ with strategy_tab1:
                 st.plotly_chart(fig_open, use_container_width=True)
 
             with chart_tab3:
-                fig_p = go.Figure()
-                fig_p.add_trace(go.Candlestick(
-                    x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
-                    name="Cena",
-                    increasing_line_color="#34d399", decreasing_line_color="#f87171",
-                ))
-                fig_p.add_hline(y=entry_threshold_disp, line_dash="dash", line_color="#f87171", line_width=1.5,
-                    annotation_text=f"Próg: {entry_threshold_disp}", annotation_position="right")
-
-                # Grupuj wejscia per bar — pokaz liczbe kontraktow jako etykiete
                 import collections
+                from plotly.subplots import make_subplots
+
+                # Grupuj wejscia i TP per bar
                 entry_groups = collections.defaultdict(list)
                 for t in result.trades:
                     entry_groups[t.entry_date].append(t.entry_price)
-                ex = list(entry_groups.keys())
-                ey = [sum(v)/len(v) for v in entry_groups.values()]
-                ecnt = [len(v) for v in entry_groups.values()]
-                etxt = [f"+{c}" if c > 1 else "" for c in ecnt]
-                esize = [8 + min(c*3, 20) for c in ecnt]
-                fig_p.add_trace(go.Scatter(
-                    x=ex, y=ey, mode="markers+text", name="Kupno",
-                    text=etxt, textposition="bottom center",
-                    textfont=dict(color="#34d399", size=10),
-                    marker=dict(symbol="triangle-up", size=esize, color="#34d399"),
-                    customdata=ecnt,
-                    hovertemplate="Kupno: %{y:.2f}$<br>Kontraktów: %{customdata}<extra></extra>",
-                ))
 
-                # Grupuj TP per bar — pokaz liczbe kontraktow jako etykiete
                 tp_groups = collections.defaultdict(list)
+                tp_pnl_groups = collections.defaultdict(float)
                 for t in result.trades:
                     if t.closed:
                         tp_groups[t.exit_date].append(t.exit_price)
-                tx = list(tp_groups.keys())
-                ty = [sum(v)/len(v) for v in tp_groups.values()]
-                tcnt = [len(v) for v in tp_groups.values()]
-                ttxt = [f"x{c}" if c > 1 else "" for c in tcnt]
-                tsize = [8 + min(c*3, 20) for c in tcnt]
-                fig_p.add_trace(go.Scatter(
-                    x=tx, y=ty, mode="markers+text", name="TP",
-                    text=ttxt, textposition="top center",
-                    textfont=dict(color="#fbbf24", size=10),
-                    marker=dict(symbol="triangle-down", size=tsize, color="#fbbf24"),
-                    customdata=tcnt,
-                    hovertemplate="TP: %{y:.2f}$<br>Kontraktów: %{customdata}<extra></extra>",
-                ))
+                        tp_pnl_groups[t.exit_date] += t.pnl
+
+                # Subplot: cena (70%) + kupno/TP (30%)
+                fig_p = make_subplots(
+                    rows=2, cols=1,
+                    shared_xaxes=True,
+                    row_heights=[0.70, 0.30],
+                    vertical_spacing=0.03,
+                )
+
+                # -- Wiersz 1: Candlestick ceny --
+                fig_p.add_trace(go.Candlestick(
+                    x=df.index, open=df["Open"], high=df["High"],
+                    low=df["Low"], close=df["Close"], name="Cena",
+                    increasing_line_color="#34d399", decreasing_line_color="#f87171",
+                ), row=1, col=1)
+
+                # Linia progu
+                fig_p.add_hline(y=entry_threshold_disp, line_dash="dash",
+                    line_color="#f87171", line_width=1.5,
+                    annotation_text=f"Próg {entry_threshold_disp}$",
+                    annotation_position="right", row=1, col=1)
+
+                # -- Wiersz 2: Słupki kupno (zielone, góra) i TP (żółte, dół) --
+                # Kupno: słupki w górę (pozytywne) = liczba kupionych kontraktów
+                if entry_groups:
+                    ex = list(entry_groups.keys())
+                    ecnt = [len(v) for v in entry_groups.values()]
+                    eavg = [sum(v)/len(v) for v in entry_groups.values()]
+                    etxt = [f"Kupno x{c}<br>@ {p:.2f}$" for c, p in zip(ecnt, eavg)]
+                    fig_p.add_trace(go.Bar(
+                        x=ex, y=ecnt, name="Kupno (kontrakty)",
+                        marker_color="#34d399", marker_line_width=0,
+                        text=[str(c) if c > 1 else "" for c in ecnt],
+                        textposition="inside", textfont=dict(color="#0f172a", size=10),
+                        hovertext=etxt, hoverinfo="text",
+                    ), row=2, col=1)
+
+                # TP: słupki w dół (negatywne) = liczba zamkniętych kontraktów
+                if tp_groups:
+                    tx = list(tp_groups.keys())
+                    tcnt = [len(v) for v in tp_groups.values()]
+                    tavg = [sum(v)/len(v) for v in tp_groups.values()]
+                    tpnl = [tp_pnl_groups[d] for d in tx]
+                    ttxt = [f"TP x{c}<br>@ {p:.2f}$<br>PnL: +{pnl:.2f}$" for c, p, pnl in zip(tcnt, tavg, tpnl)]
+                    fig_p.add_trace(go.Bar(
+                        x=tx, y=[-c for c in tcnt], name="TP (kontrakty)",
+                        marker_color="#fbbf24", marker_line_width=0,
+                        text=[str(c) if c > 1 else "" for c in tcnt],
+                        textposition="inside", textfont=dict(color="#0f172a", size=10),
+                        hovertext=ttxt, hoverinfo="text",
+                    ), row=2, col=1)
 
                 fig_p.update_layout(
-                    template="plotly_dark", height=460,
-                    margin=dict(l=0,r=0,t=24,b=0),
+                    template="plotly_dark", height=580,
+                    margin=dict(l=0, r=0, t=24, b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name} — wejścia i wyjścia (rozmiar = liczba kontraktów)", font=dict(size=13, color="#94a3b8")),
-                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
+                    title=dict(text=f"{commodity_name} — cena + aktywność (kupno↑ zielone / TP↓ żółte)", font=dict(size=13, color="#94a3b8")),
+                    showlegend=True,
+                    legend=dict(orientation="h", y=1.02, x=0, font=dict(color="#94a3b8")),
+                    barmode="overlay",
+                )
+                fig_p.update_xaxes(gridcolor="#1e293b")
+                fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
+                fig_p.update_yaxes(
+                    gridcolor="#1e293b", row=2, col=1,
+                    title_text="Kontrakty",
+                    title_font=dict(color="#64748b", size=11),
+                    zeroline=True, zerolinecolor="#334155", zerolinewidth=1,
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
