@@ -93,11 +93,10 @@ MONTH_CODES = {
 def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
     """
     Pobiera dostepne konkretne kontrakty dla danego surowca z Yahoo Finance.
-    Zwraca liste slownikow: {symbol, name, price, expiry, open_interest}
-    posortowanych po dacie wygasniecia.
+    Uzywa batch download dla szybkosci zamiast pojedynczych requestow.
     """
     import yfinance as yf
-    from datetime import date, timedelta
+    from datetime import date
 
     info = COMMODITY_CONTRACT_INFO.get(commodity_name)
     if not info:
@@ -106,33 +105,78 @@ def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
     prefix   = info["prefix"]
     exchange = info["exchange"]
     months   = info["months"]
+    today    = date.today()
 
-    today      = date.today()
-    results    = []
-    years_back = 1
-
-    for year_offset in range(-years_back, years_ahead + 1):
-        yr = today.year + year_offset
+    # Buduj liste kandydatow (tylko biezacy rok i naprzod)
+    candidates = []
+    for year_offset in range(0, years_ahead + 1):
+        yr  = today.year + year_offset
         yr2 = str(yr)[-2:]
         for month_code in months:
             symbol = f"{prefix}{month_code}{yr2}.{exchange}"
+            month_num = MONTH_CODES.get(month_code, ("?", 0))[1]
+            # Pomin juz przeszle miesiace w biezacym roku
+            if yr == today.year and month_num < today.month:
+                continue
+            month_name = MONTH_CODES.get(month_code, ("?", 0))[0]
+            candidates.append({
+                "symbol": symbol,
+                "name":   f"{prefix} {month_name}-{yr} ({month_code}{yr2})",
+            })
+
+    if not candidates:
+        return []
+
+    # Batch download ostatnich 5 dni — jezeli symbol ma dane to jest aktywny
+    symbols = [c["symbol"] for c in candidates]
+    try:
+        raw = yf.download(
+            symbols,
+            period="5d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+        )
+    except Exception:
+        return []
+
+    results = []
+    for c in candidates:
+        sym = c["symbol"]
+        try:
+            # Pobierz ostatnia cene zamkniecia
+            if len(symbols) == 1:
+                closes = raw["Close"].dropna()
+            else:
+                closes = raw[sym]["Close"].dropna() if sym in raw else pd.Series(dtype=float)
+
+            if closes.empty:
+                continue
+            price = float(closes.iloc[-1])
+            if price <= 0:
+                continue
+
+            # Wylicz przyblizony expiry z symbolu (bez dodatkowego HTTP request)
+            # Format: ZCK26.CBT -> month=K (Maj), year=26
+            month_code = sym[len(prefix)]
+            yr2_str    = sym[len(prefix)+1:len(prefix)+3]
             try:
-                t    = yf.Ticker(symbol)
-                inf  = t.info
-                price = inf.get("regularMarketPrice")
-                expiry = inf.get("expireIsoDate", "")
-                oi     = inf.get("openInterest", 0)
-                if price and price > 0 and expiry:
-                    month_name = MONTH_CODES.get(month_code, ("?", 0))[0]
-                    results.append({
-                        "symbol":        symbol,
-                        "name":          f"{prefix} {month_name}-{yr} ({month_code}{yr2})",
-                        "price":         price,
-                        "expiry":        expiry[:10],
-                        "open_interest": oi or 0,
-                    })
+                yr_full    = 2000 + int(yr2_str)
+                month_num  = MONTH_CODES.get(month_code, ("?", 1))[1]
+                expiry     = f"{yr_full}-{month_num:02d}-14"
             except Exception:
-                pass
+                expiry = ""
+
+            results.append({
+                "symbol":        sym,
+                "name":          c["name"],
+                "price":         round(price, 4),
+                "expiry":        expiry,
+                "open_interest": 0,
+            })
+        except Exception:
+            continue
 
     results.sort(key=lambda x: x["expiry"])
     return results
