@@ -379,7 +379,37 @@ with strategy_tab1:
 
     st.markdown('<div class="strategy-tag">Pyramid Long · Kupuj poniżej progu · TP per kontrakt</div>', unsafe_allow_html=True)
 
-    if not run_button:
+    # Uruchom backtest i zapisz wyniki w session_state
+    if run_button:
+        df_new = None
+        with st.spinner(f"Pobieranie danych {commodity_name}..."):
+            try:
+                df_new = fetch_data(symbol, start=start_date, end=end_date)
+            except Exception as e:
+                st.error(f"Błąd pobierania danych: {e}")
+
+        if df_new is None or df_new.empty:
+            st.error("Brak danych. Sprawdź symbol lub zmień zakres dat.")
+        else:
+            with st.spinner("Obliczanie..."):
+                result_new = run_backtest(
+                    df=df_new,
+                    entry_threshold=entry_threshold,
+                    pyramid_step=pyramid_step,
+                    take_profit=take_profit,
+                    margin_per_contract=margin_per_contract,
+                    qty_per_entry=1,
+                )
+            st.session_state["bt_df"]     = df_new
+            st.session_state["bt_result"] = result_new
+            st.session_state["bt_symbol"] = commodity_name
+            st.session_state["bt_start"]  = str(start_date)
+            st.session_state["bt_end"]    = str(end_date)
+            st.session_state["bt_margin"] = margin_per_contract
+            st.session_state["bt_threshold"] = entry_threshold
+
+    # Renderuj wyniki z session_state (przetrwają każdy rerun)
+    if "bt_result" not in st.session_state:
         st.markdown("""
         <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:32px;text-align:center;margin-top:24px">
             <div style="font-size:2.5rem;margin-bottom:12px">👈</div>
@@ -387,47 +417,31 @@ with strategy_tab1:
             <div style="font-size:0.85rem;color:#64748b">Wybierz surowiec, daty i parametry strategii w panelu po lewej,<br>następnie kliknij <b>Uruchom backtest</b>.</div>
         </div>
         """, unsafe_allow_html=True)
-
     else:
-        # ── Pobieranie danych ──────────────────────────────────
-        df = None
-        with st.spinner(f"Pobieranie danych {commodity_name}..."):
-            try:
-                df = fetch_data(symbol, start=start_date, end=end_date)
-            except Exception as e:
-                st.error(f"Błąd pobierania danych: {e}")
+        df     = st.session_state["bt_df"]
+        result = st.session_state["bt_result"]
+        commodity_name_disp  = st.session_state["bt_symbol"]
+        margin_per_contract_disp = st.session_state["bt_margin"]
+        entry_threshold_disp = st.session_state["bt_threshold"]
 
-        if df is None or df.empty:
-            st.error("Brak danych. Sprawdź symbol lub zmień zakres dat.")
+        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(df)} sesji · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
 
-        else:
-            # ── Backtest ───────────────────────────────────────
-            with st.spinner("Obliczanie..."):
-                result = run_backtest(
-                    df=df,
-                    entry_threshold=entry_threshold,
-                    pyramid_step=pyramid_step,
-                    take_profit=take_profit,
-                    margin_per_contract=margin_per_contract,
-                    qty_per_entry=1,
-                )
+        # ── Metryki ────────────────────────────────────────────
+        avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
+        pnl_pos = result.total_pnl >= 0
+        period_high = float(df["High"].max())
+        period_low  = float(df["Low"].min())
+        high_date   = str(df["High"].idxmax())[:10]
+        low_date    = str(df["Low"].idxmin())[:10]
 
-            st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(df)} sesji · {commodity_name} · {start_date} → {end_date}</div>", unsafe_allow_html=True)
-
-            # ── Metryki ────────────────────────────────────────
-            avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
-            pnl_pos = result.total_pnl >= 0
-            period_high = float(df["High"].max())
-            period_low  = float(df["Low"].min())
-            high_date   = str(df["High"].idxmax())[:10]
-            low_date    = str(df["Low"].idxmin())[:10]
+        if True:
             cards_html = '<div class="metric-grid">'
             cards_html += metric_card("Zysk / Strata", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} całkowity PnL", positive=pnl_pos)
             cards_html += metric_card("Transakcji", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
             cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "procent wygranych", positive=result.win_rate >= 50)
             cards_html += metric_card("Śr. PnL / transakcję", f"${avg_pnl:.2f}", "per zamknięty kontrakt", positive=avg_pnl >= 0)
             cards_html += metric_card("Max kontraktów", str(result.max_concurrent), "jednocześnie otwartych")
-            cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract:,.0f}")
+            cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract_disp:,.0f}")
             cards_html += metric_card("Otwarte pozycje", str(result.open_trades), "niezamknięte na koniec")
             cards_html += metric_card("Śr. dni do TP", f"{result.avg_days_open:.0f}", "średni czas trzymania")
             cards_html += metric_card("MAX HIGH okresu", f"${period_high:,.2f}", f"najwyższa cena · {high_date}")
@@ -485,8 +499,8 @@ with strategy_tab1:
                     name="Cena",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
                 ))
-                fig_p.add_hline(y=entry_threshold, line_dash="dash", line_color="#f87171", line_width=1.5,
-                    annotation_text=f"Próg: {entry_threshold}", annotation_position="right")
+                fig_p.add_hline(y=entry_threshold_disp, line_dash="dash", line_color="#f87171", line_width=1.5,
+                    annotation_text=f"Próg: {entry_threshold_disp}", annotation_position="right")
                 fig_p.add_trace(go.Scatter(
                     x=[t.entry_date for t in result.trades],
                     y=[t.entry_price for t in result.trades],
@@ -665,10 +679,10 @@ with strategy_tab1:
                     for idx_s, s in enumerate(steps):
                         for idx_t, tp_val in enumerate(tps):
                             r = run_backtest(
-                                df=df, entry_threshold=entry_threshold,
+                                df=df, entry_threshold=entry_threshold_disp,
                                 pyramid_step=round(float(s), 4),
                                 take_profit=round(float(tp_val), 4),
-                                margin_per_contract=margin_per_contract,
+                                margin_per_contract=margin_per_contract_disp,
                             )
                             opt_results.append({
                                 "Krok ($)":        round(float(s), 2),
