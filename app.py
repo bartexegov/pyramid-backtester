@@ -112,10 +112,9 @@ st.markdown("""
     text-align: center;
 }
 .metric-card-label {
-    font-size: 0.72rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
     margin-bottom: 6px;
 }
 .metric-card-value {
@@ -126,7 +125,7 @@ st.markdown("""
 }
 .metric-card-value.positive { color: #34d399; }
 .metric-card-value.negative { color: #f87171; }
-.metric-card-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; }
+.metric-card-sub { font-size: 0.82rem; color: #cbd5e1; margin-top: 5px; font-weight: 500; }
 
 /* ── Top combo cards ── */
 .combo-card {
