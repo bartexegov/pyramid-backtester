@@ -201,6 +201,146 @@ def run_backtest(
     )
 
 
+# ─────────────────────────────────────────────────────────────
+# VOLUME PROFILE — strefy wsparcia / oporu
+# ─────────────────────────────────────────────────────────────
+
+def compute_volume_profile(df: pd.DataFrame, bins: int = 100):
+    """
+    Liczy Volume Profile dla podanego DataFrame.
+
+    Metoda:
+      - Dzieli zakres cen (Low..High) na 'bins' poziomow cenowych
+      - Dla kazdego bara rozklada wolumen proporcjonalnie na ceny
+        w przedziale [Low, High] tego bara (uproszczenie TPO)
+      - Zwraca DataFrame z kolumnami: price_level, volume, pct
+      - POC = cena z najwyzszym wolumenem
+      - Value Area = zakres zawierajacy 70% calkowitego wolumenu wokol POC
+    """
+    price_min = float(df["Low"].min())
+    price_max = float(df["High"].max())
+    if price_min >= price_max:
+        return pd.DataFrame(), price_min, price_min, price_min
+
+    levels = np.linspace(price_min, price_max, bins + 1)
+    mid_prices = (levels[:-1] + levels[1:]) / 2
+    vol_at_level = np.zeros(bins)
+
+    for _, row in df.iterrows():
+        bar_low   = float(row["Low"])
+        bar_high  = float(row["High"])
+        bar_vol   = float(row["Volume"]) if float(row["Volume"]) > 0 else 1.0
+        bar_range = bar_high - bar_low
+        if bar_range < 1e-9:
+            # zero-range bar — przypisz do najblizszego levelu
+            idx = np.searchsorted(levels, bar_low, side="right") - 1
+            idx = min(max(idx, 0), bins - 1)
+            vol_at_level[idx] += bar_vol
+            continue
+        # znajdz ktore poziomy wchodza w zakres tego bara
+        mask = (mid_prices >= bar_low) & (mid_prices <= bar_high)
+        n_levels = mask.sum()
+        if n_levels == 0:
+            idx = np.searchsorted(levels, (bar_low + bar_high) / 2, side="right") - 1
+            idx = min(max(idx, 0), bins - 1)
+            vol_at_level[idx] += bar_vol
+        else:
+            vol_at_level[mask] += bar_vol / n_levels
+
+    total_vol = vol_at_level.sum()
+    pct = vol_at_level / total_vol * 100 if total_vol > 0 else vol_at_level
+
+    vp_df = pd.DataFrame({
+        "price_level": mid_prices,
+        "volume":      vol_at_level,
+        "pct":         pct,
+    })
+
+    # POC — Point of Control
+    poc_idx = int(np.argmax(vol_at_level))
+    poc_price = float(mid_prices[poc_idx])
+
+    # Value Area (70% wolumenu wokol POC)
+    target_vol = total_vol * 0.70
+    va_low_idx  = poc_idx
+    va_high_idx = poc_idx
+    accumulated = vol_at_level[poc_idx]
+
+    while accumulated < target_vol:
+        can_go_down = va_low_idx > 0
+        can_go_up   = va_high_idx < bins - 1
+        if not can_go_down and not can_go_up:
+            break
+        add_down = vol_at_level[va_low_idx - 1] if can_go_down else -1
+        add_up   = vol_at_level[va_high_idx + 1] if can_go_up   else -1
+        if add_down >= add_up:
+            va_low_idx  -= 1
+            accumulated += vol_at_level[va_low_idx]
+        else:
+            va_high_idx += 1
+            accumulated += vol_at_level[va_high_idx]
+
+    va_low  = float(mid_prices[va_low_idx])
+    va_high = float(mid_prices[va_high_idx])
+
+    return vp_df, poc_price, va_low, va_high
+
+
+def find_support_zones(df: pd.DataFrame, bins: int = 200, top_n: int = 5, min_gap_pct: float = 0.03):
+    """
+    Znajdz N stref wsparcia/oporu jako lokalnych maksimow Volume Profile.
+
+    Zwraca liste slownikow:
+      { price, volume_pct, zone_low, zone_high, strength }
+    posortowanych od najwyzszego wolumenu.
+
+    min_gap_pct: minimalna odleglosc miedzy strefami jako % ceny (domyslnie 3%)
+    """
+    vp_df, poc, va_low, va_high = compute_volume_profile(df, bins=bins)
+    if vp_df.empty:
+        return [], poc, va_low, va_high
+
+    prices  = vp_df["price_level"].values
+    volumes = vp_df["volume"].values
+    pcts    = vp_df["pct"].values
+    total   = volumes.sum()
+
+    # Znajdz lokalne maksima (kazdy punkt wyzszy od swoich 5 sasiadow)
+    window = 5
+    local_max_idx = []
+    for i in range(window, len(volumes) - window):
+        if volumes[i] == max(volumes[i-window:i+window+1]):
+            local_max_idx.append(i)
+
+    # Posortuj po wolumenie malejaco
+    local_max_idx.sort(key=lambda i: volumes[i], reverse=True)
+
+    # Wybierz top N z minimalnym odstepem miedzy strefami
+    zones = []
+    for idx in local_max_idx:
+        price = prices[idx]
+        # Sprawdz czy nie za blisko juz wybranej strefy
+        too_close = any(abs(price - z["price"]) / price < min_gap_pct for z in zones)
+        if too_close:
+            continue
+        # Szerokosc strefy = polowa odleglosci do sasiednich poziomow
+        step = prices[1] - prices[0] if len(prices) > 1 else price * 0.01
+        strength = round(pcts[idx], 2)
+        zones.append({
+            "price":      round(price, 4),
+            "zone_low":   round(price - step * 3, 4),
+            "zone_high":  round(price + step * 3, 4),
+            "volume_pct": strength,
+            "label":      f"Strefa {round(price, 2)}$ ({strength:.1f}% vol)",
+        })
+        if len(zones) >= top_n:
+            break
+
+    # Posortuj strefy od najnizszej ceny
+    zones.sort(key=lambda z: z["price"])
+    return zones, poc, va_low, va_high
+
+
 def trades_to_dataframe(trades: List[Trade]) -> pd.DataFrame:
     rows = []
     for t in trades:

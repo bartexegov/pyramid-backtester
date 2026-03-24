@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date, timedelta
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, find_support_zones, compute_volume_profile
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -365,9 +365,10 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Zakładki — tu możesz dodawać kolejne strategie w przyszłości
-strategy_tab1, strategy_tab2 = st.tabs([
-    "📈 Strategia 1 — Pyramid Long Below Threshold",
+# Zakładki
+strategy_tab1, strategy_tab_vp, strategy_tab2 = st.tabs([
+    "📈 Strategia 1 — Pyramid Long",
+    "🔥 Strefy wsparcia — Volume Profile",
     "➕ Dodaj strategię (wkrótce)",
 ])
 
@@ -597,3 +598,231 @@ with strategy_tab1:
                     render_opt_table(opt_df_sorted, top_n=20)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# ZAKŁADKA 2 — VOLUME PROFILE / STREFY WSPARCIA
+# ─────────────────────────────────────────────────────────────
+
+with strategy_tab_vp:
+    st.markdown('<div class="strategy-tag">Volume Profile · Point of Control · Value Area · Strefy wsparcia</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin:12px 0 20px 0;font-size:0.85rem;color:#94a3b8;line-height:1.7">
+        <b style="color:#e2e8f0">Jak to działa:</b> Volume Profile pokazuje na jakich poziomach cenowych skupił się największy wolumen w historii.
+        Strefy z wysokim wolumenem to naturalne wsparcia i opory — cena ma tendencję do powracania do tych poziomów.
+        <br><b style="color:#38bdf8">POC</b> (Point of Control) = cena z absolutnie najwyższym wolumenem.
+        <br><b style="color:#34d399">Value Area Low</b> = dolna granica strefy obejmującej 70% wolumenu wokół POC — <b style="color:#fbbf24">to jest Twój sygnał do wejścia w strategię.</b>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Wybor instrumentu i okresu VP ─────────────────────────
+    vp_col1, vp_col2 = st.columns([2, 3])
+
+    with vp_col1:
+        vp_symbol_name = st.selectbox("Instrument", options=list(COMMODITY_SYMBOLS.keys()), index=0, key="vp_symbol")
+        vp_symbol = COMMODITY_SYMBOLS[vp_symbol_name]
+
+    with vp_col2:
+        st.markdown("<div style='font-size:0.75rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px'>Okres historyczny</div>", unsafe_allow_html=True)
+        quick_cols = st.columns(5)
+        quick_labels = ["1 rok", "5 lat", "10 lat", "20 lat", "Max"]
+        quick_days   = [365, 365*5, 365*10, 365*20, 365*40]
+        vp_quick = None
+        for i, (col, label) in enumerate(zip(quick_cols, quick_labels)):
+            with col:
+                if st.button(label, key=f"vp_quick_{i}", use_container_width=True):
+                    vp_quick = quick_days[i]
+
+        vp_date_col1, vp_date_col2 = st.columns(2)
+        with vp_date_col1:
+            default_vp_start = date.today() - timedelta(days=365*10)
+            if vp_quick:
+                default_vp_start = date.today() - timedelta(days=vp_quick)
+            vp_start = st.date_input("Od", value=default_vp_start, key="vp_start", min_value=date(1990,1,1), max_value=date.today())
+        with vp_date_col2:
+            vp_end = st.date_input("Do", value=date.today(), key="vp_end", min_value=date(1990,1,2), max_value=date.today())
+
+    vp_run = st.button("🔍 Analizuj strefy wsparcia", type="primary", use_container_width=False, key="vp_run")
+
+    if vp_run:
+        with st.spinner(f"Pobieranie danych {vp_symbol_name}..."):
+            try:
+                vp_df_raw = fetch_data(vp_symbol, start=vp_start, end=vp_end)
+            except Exception as e:
+                st.error(f"Błąd: {e}")
+                vp_df_raw = None
+
+        if vp_df_raw is None or vp_df_raw.empty:
+            st.error("Brak danych. Zmień zakres dat lub instrument.")
+        else:
+            with st.spinner("Obliczanie Volume Profile..."):
+                zones, poc, va_low, va_high = find_support_zones(vp_df_raw, bins=300, top_n=6, min_gap_pct=0.025)
+                vp_data, _, _, _ = compute_volume_profile(vp_df_raw, bins=300)
+
+            period_low  = float(vp_df_raw["Low"].min())
+            period_high = float(vp_df_raw["High"].max())
+
+            st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(vp_df_raw)} sesji · {vp_symbol_name} · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
+
+            # ── Kluczowe poziomy ──────────────────────────────
+            kl_cards = '<div class="metric-grid">'
+            kl_cards += metric_card("Point of Control", f"${poc:,.2f}", "cena z najwyższym wolumenem")
+            kl_cards += metric_card("Value Area Low", f"${va_low:,.2f}", "dolna granica 70% wolumenu ← wejście", positive=True)
+            kl_cards += metric_card("Value Area High", f"${va_high:,.2f}", "górna granica 70% wolumenu")
+            kl_cards += metric_card("Min Low okresu", f"${period_low:,.2f}", "absolutne minimum w okresie")
+            kl_cards += metric_card("Max High okresu", f"${period_high:,.2f}", "absolutne maksimum w okresie")
+            kl_cards += metric_card("Stref wsparcia", str(len(zones)), "wykrytych poziomów VP")
+            kl_cards += '</div>'
+            st.markdown(kl_cards, unsafe_allow_html=True)
+
+            # ── Wykres ceny z Volume Profile i strefami ───────
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+            fig_vp = go.Figure()
+
+            # Wykres swiecowy ceny
+            fig_vp.add_trace(go.Candlestick(
+                x=vp_df_raw.index,
+                open=vp_df_raw["Open"],
+                high=vp_df_raw["High"],
+                low=vp_df_raw["Low"],
+                close=vp_df_raw["Close"],
+                name="Cena",
+                increasing_line_color="#34d399",
+                decreasing_line_color="#f87171",
+                xaxis="x", yaxis="y",
+            ))
+
+            # Strefy wsparcia jako prostokaty
+            colors_zone = ["rgba(56,189,248,0.15)", "rgba(251,191,36,0.12)",
+                           "rgba(52,211,153,0.12)", "rgba(248,113,113,0.12)",
+                           "rgba(167,139,250,0.12)", "rgba(249,115,22,0.12)"]
+            border_colors = ["#38bdf8", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#f97316"]
+
+            for i, zone in enumerate(zones):
+                col_bg  = colors_zone[i % len(colors_zone)]
+                col_brd = border_colors[i % len(border_colors)]
+                fig_vp.add_hrect(
+                    y0=zone["zone_low"], y1=zone["zone_high"],
+                    fillcolor=col_bg,
+                    line=dict(color=col_brd, width=1, dash="dot"),
+                    annotation_text=f"  {zone['price']:.2f}$ ({zone['volume_pct']:.1f}%vol)",
+                    annotation_position="right",
+                    annotation=dict(font=dict(color=col_brd, size=11)),
+                )
+
+            # POC linia
+            fig_vp.add_hline(
+                y=poc, line_dash="dash", line_color="#fbbf24", line_width=2,
+                annotation_text=f"POC {poc:.2f}$",
+                annotation_position="left",
+                annotation=dict(font=dict(color="#fbbf24", size=11)),
+            )
+
+            # Value Area Low linia
+            fig_vp.add_hline(
+                y=va_low, line_dash="dash", line_color="#34d399", line_width=2,
+                annotation_text=f"VA Low {va_low:.2f}$ ← wejście",
+                annotation_position="left",
+                annotation=dict(font=dict(color="#34d399", size=11)),
+            )
+
+            # Value Area High linia
+            fig_vp.add_hline(
+                y=va_high, line_dash="dash", line_color="#38bdf8", line_width=1.5,
+                annotation_text=f"VA High {va_high:.2f}$",
+                annotation_position="left",
+                annotation=dict(font=dict(color="#38bdf8", size=11)),
+            )
+
+            fig_vp.update_layout(
+                template="plotly_dark",
+                height=580,
+                margin=dict(l=0, r=120, t=24, b=0),
+                paper_bgcolor="#0f172a",
+                plot_bgcolor="#0f172a",
+                xaxis_rangeslider_visible=False,
+                title=dict(text=f"{vp_symbol_name} — cena z Volume Profile i strefami wsparcia", font=dict(size=13, color="#94a3b8")),
+                xaxis=dict(gridcolor="#1e293b"),
+                yaxis=dict(gridcolor="#1e293b"),
+            )
+            st.plotly_chart(fig_vp, use_container_width=True)
+
+            # ── Volume Profile histogram ───────────────────────
+            st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:4px 0 8px 0'>Volume Profile — rozkład wolumenu po cenie</div>", unsafe_allow_html=True)
+
+            fig_hist = go.Figure()
+            # Koloruj slupki - jasniejsze = strefa wsparcia
+            bar_colors = []
+            zone_ranges = [(z["zone_low"], z["zone_high"]) for z in zones]
+            for price in vp_data["price_level"]:
+                in_zone = any(lo <= price <= hi for lo, hi in zone_ranges)
+                if abs(price - poc) < (period_high - period_low) / 300 * 4:
+                    bar_colors.append("#fbbf24")
+                elif in_zone:
+                    bar_colors.append("#38bdf8")
+                else:
+                    bar_colors.append("#334155")
+
+            fig_hist.add_trace(go.Bar(
+                x=vp_data["pct"],
+                y=vp_data["price_level"],
+                orientation="h",
+                name="Volume %",
+                marker_color=bar_colors,
+                marker_line_width=0,
+            ))
+            fig_hist.add_hline(y=poc,    line_dash="dash", line_color="#fbbf24", line_width=1.5)
+            fig_hist.add_hline(y=va_low, line_dash="dash", line_color="#34d399", line_width=1.5)
+            fig_hist.add_hline(y=va_high,line_dash="dash", line_color="#38bdf8", line_width=1)
+
+            fig_hist.update_layout(
+                template="plotly_dark",
+                height=420,
+                margin=dict(l=0, r=0, t=8, b=0),
+                paper_bgcolor="#0f172a",
+                plot_bgcolor="#0f172a",
+                xaxis=dict(title="% wolumenu", gridcolor="#1e293b"),
+                yaxis=dict(title="Cena ($)", gridcolor="#1e293b"),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            # ── Tabela stref ───────────────────────────────────
+            if zones:
+                st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Wykryte strefy wsparcia — rekomendowane poziomy wejścia</div>", unsafe_allow_html=True)
+                zone_rows = ""
+                for i, z in enumerate(zones):
+                    signal = ""
+                    if z["price"] <= va_low:
+                        signal = "<span style='color:#34d399;font-weight:700'>✓ Strefa wejścia</span>"
+                    elif z["price"] <= poc:
+                        signal = "<span style='color:#fbbf24'>~ Poniżej POC</span>"
+                    else:
+                        signal = "<span style='color:#64748b'>Powyżej POC</span>"
+                    zone_rows += f"""
+                    <tr>
+                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#e2e8f0;font-weight:700'>${z['price']:,.2f}</td>
+                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#94a3b8'>${z['zone_low']:,.2f} – ${z['zone_high']:,.2f}</td>
+                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#38bdf8;font-weight:600'>{z['volume_pct']:.1f}%</td>
+                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b'>{signal}</td>
+                    </tr>"""
+
+                st.markdown(f"""
+                <table style='width:100%;border-collapse:collapse;font-size:0.85rem'>
+                    <thead><tr>
+                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Cena strefy</th>
+                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Zakres strefy</th>
+                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>% Wolumenu</th>
+                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Sygnał</th>
+                    </tr></thead>
+                    <tbody>{zone_rows}</tbody>
+                </table>
+                """, unsafe_allow_html=True)
+
+                st.markdown(f"""
+                <div style="background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:20px;font-size:0.85rem;color:#93c5fd;line-height:1.7">
+                    <b style="color:#38bdf8">💡 Jak używać tych danych ze strategią Pyramid Long:</b><br>
+                    Ustaw <b>Cena wejścia</b> w Strategii 1 na poziomie <b style="color:#34d399">Value Area Low = ${va_low:,.2f}$</b> lub na cenie najbliższej strefy wsparcia.
+                    Gdy cena zbliży się do tego poziomu — to sygnał że jesteś w historycznie taniej strefie i czas aktywować strategię pyramidingu.
+                </div>
+                """, unsafe_allow_html=True)
