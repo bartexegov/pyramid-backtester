@@ -375,7 +375,6 @@ strategy_tab1, strategy_tab2 = st.tabs([
 with strategy_tab2:
     st.markdown("<br>", unsafe_allow_html=True)
     st.info("Tu pojawią się kolejne strategie. Np. Pyramid Short, Mean Reversion, Breakout itp.")
-    st.stop()
 
 with strategy_tab1:
 
@@ -389,210 +388,207 @@ with strategy_tab1:
             <div style="font-size:0.85rem;color:#64748b">Wybierz surowiec, daty i parametry strategii w panelu po lewej,<br>następnie kliknij <b>Uruchom backtest</b>.</div>
         </div>
         """, unsafe_allow_html=True)
-        st.stop()
 
-    # ── Pobieranie danych ────────────────────────────────────
-    with st.spinner(f"Pobieranie danych {commodity_name}..."):
-        try:
-            df = fetch_data(symbol, start=start_date, end=end_date)
-        except Exception as e:
-            st.error(f"Błąd pobierania danych: {e}")
-            st.stop()
+    else:
+        # ── Pobieranie danych ──────────────────────────────────
+        df = None
+        with st.spinner(f"Pobieranie danych {commodity_name}..."):
+            try:
+                df = fetch_data(symbol, start=start_date, end=end_date)
+            except Exception as e:
+                st.error(f"Błąd pobierania danych: {e}")
 
-    if df.empty:
-        st.error("Brak danych. Sprawdź symbol lub zmień zakres dat.")
-        st.stop()
+        if df is None or df.empty:
+            st.error("Brak danych. Sprawdź symbol lub zmień zakres dat.")
 
-    # ── Backtest ─────────────────────────────────────────────
-    with st.spinner("Obliczanie..."):
-        result = run_backtest(
-            df=df,
-            entry_threshold=entry_threshold,
-            pyramid_step=pyramid_step,
-            take_profit=take_profit,
-            margin_per_contract=margin_per_contract,
-            qty_per_entry=1,
-        )
-
-    st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(df)} sesji · {commodity_name} · {start_date} → {end_date}</div>", unsafe_allow_html=True)
-
-    # ── Metryki ──────────────────────────────────────────────
-    avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
-    pnl_pos = result.total_pnl >= 0
-
-    cards_html = '<div class="metric-grid">'
-    cards_html += metric_card("Zysk / Strata", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} całkowity PnL", positive=pnl_pos)
-    cards_html += metric_card("Transakcji", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
-    cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "procent wygranych", positive=result.win_rate >= 50)
-    cards_html += metric_card("Śr. PnL / transakcję", f"${avg_pnl:.2f}", "per zamknięty kontrakt", positive=avg_pnl >= 0)
-    cards_html += metric_card("Max kontraktów", str(result.max_concurrent), "jednocześnie otwartych")
-    cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract:,.0f}")
-    cards_html += metric_card("Otwarte pozycje", str(result.open_trades), "niezamknięte na koniec")
-    cards_html += metric_card("Śr. dni do TP", f"{result.avg_days_open:.0f}", "średni czas trzymania")
-    cards_html += '</div>'
-    st.markdown(cards_html, unsafe_allow_html=True)
-
-    # ── Wykresy ──────────────────────────────────────────────
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    chart_tab1, chart_tab2, chart_tab3 = st.tabs(["Equity Curve", "Otwarte kontrakty", "Cena + sygnały"])
-
-    with chart_tab1:
-        fig_eq = go.Figure()
-        fig_eq.add_trace(go.Scatter(
-            x=result.equity_curve.index, y=result.equity_curve.values,
-            mode="lines", name="PnL",
-            line=dict(color="#38bdf8", width=2),
-            fill="tozeroy", fillcolor="rgba(56,189,248,0.08)",
-        ))
-        fig_eq.add_hline(y=0, line_dash="dot", line_color="#475569", opacity=0.6)
-        fig_eq.update_layout(
-            template="plotly_dark", height=360,
-            margin=dict(l=0,r=0,t=24,b=0),
-            paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-            title=dict(text="Equity Curve — skumulowany PnL", font=dict(size=13, color="#94a3b8")),
-            xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
-        )
-        st.plotly_chart(fig_eq, use_container_width=True)
-
-    with chart_tab2:
-        fig_open = go.Figure()
-        fig_open.add_trace(go.Scatter(
-            x=result.daily_open_contracts.index, y=result.daily_open_contracts.values,
-            mode="lines", name="Kontrakty",
-            line=dict(color="#f87171", width=1.5),
-            fill="tozeroy", fillcolor="rgba(248,113,113,0.1)",
-        ))
-        fig_open.add_hline(
-            y=result.max_concurrent, line_dash="dash", line_color="#fbbf24",
-            annotation_text=f"Max: {result.max_concurrent}", annotation_position="right",
-        )
-        fig_open.update_layout(
-            template="plotly_dark", height=360,
-            margin=dict(l=0,r=0,t=24,b=0),
-            paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-            title=dict(text="Liczba otwartych kontraktów w czasie", font=dict(size=13, color="#94a3b8")),
-            xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
-        )
-        st.plotly_chart(fig_open, use_container_width=True)
-
-    with chart_tab3:
-        fig_p = go.Figure()
-        fig_p.add_trace(go.Candlestick(
-            x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
-            name="Cena",
-            increasing_line_color="#34d399", decreasing_line_color="#f87171",
-        ))
-        fig_p.add_hline(y=entry_threshold, line_dash="dash", line_color="#f87171", line_width=1.5,
-            annotation_text=f"Próg: {entry_threshold}", annotation_position="right")
-        fig_p.add_trace(go.Scatter(
-            x=[t.entry_date for t in result.trades],
-            y=[t.entry_price for t in result.trades],
-            mode="markers", name="Kupno",
-            marker=dict(symbol="triangle-up", size=9, color="#34d399"),
-        ))
-        fig_p.add_trace(go.Scatter(
-            x=[t.exit_date for t in result.trades if t.closed],
-            y=[t.exit_price for t in result.trades if t.closed],
-            mode="markers", name="TP",
-            marker=dict(symbol="triangle-down", size=9, color="#fbbf24"),
-        ))
-        fig_p.update_layout(
-            template="plotly_dark", height=460,
-            margin=dict(l=0,r=0,t=24,b=0),
-            paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-            xaxis_rangeslider_visible=False,
-            title=dict(text=f"{commodity_name} — wejścia i wyjścia", font=dict(size=13, color="#94a3b8")),
-            xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
-        )
-        st.plotly_chart(fig_p, use_container_width=True)
-
-    # ── Optymalizacja ────────────────────────────────────────
-    if optimize_enabled:
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">🔬 Optymalizacja kombinacji</div>
-            <div style="font-size:0.75rem;color:#64748b">{commodity_name} · próg {entry_threshold}$</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        steps = np.arange(float(opt_step_min), float(opt_step_max) + float(opt_step_inc)*0.5, float(opt_step_inc))
-        tps   = np.arange(float(opt_tp_min),   float(opt_tp_max)   + float(opt_tp_inc)*0.5,   float(opt_tp_inc))
-        total_runs = len(steps) * len(tps)
-
-        if total_runs > 300:
-            st.warning(f"Za dużo kombinacji ({total_runs}). Zawęź zakres lub zwiększ krok.")
         else:
-            opt_results = []
-            prog = st.progress(0, text="Obliczanie kombinacji...")
-            for idx_s, s in enumerate(steps):
-                for idx_t, tp in enumerate(tps):
-                    r = run_backtest(
-                        df=df, entry_threshold=entry_threshold,
-                        pyramid_step=round(float(s), 4),
-                        take_profit=round(float(tp), 4),
-                        margin_per_contract=margin_per_contract,
+            # ── Backtest ───────────────────────────────────────
+            with st.spinner("Obliczanie..."):
+                result = run_backtest(
+                    df=df,
+                    entry_threshold=entry_threshold,
+                    pyramid_step=pyramid_step,
+                    take_profit=take_profit,
+                    margin_per_contract=margin_per_contract,
+                    qty_per_entry=1,
+                )
+
+            st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(df)} sesji · {commodity_name} · {start_date} → {end_date}</div>", unsafe_allow_html=True)
+
+            # ── Metryki ────────────────────────────────────────
+            avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
+            pnl_pos = result.total_pnl >= 0
+            cards_html = '<div class="metric-grid">'
+            cards_html += metric_card("Zysk / Strata", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} całkowity PnL", positive=pnl_pos)
+            cards_html += metric_card("Transakcji", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
+            cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "procent wygranych", positive=result.win_rate >= 50)
+            cards_html += metric_card("Śr. PnL / transakcję", f"${avg_pnl:.2f}", "per zamknięty kontrakt", positive=avg_pnl >= 0)
+            cards_html += metric_card("Max kontraktów", str(result.max_concurrent), "jednocześnie otwartych")
+            cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract:,.0f}")
+            cards_html += metric_card("Otwarte pozycje", str(result.open_trades), "niezamknięte na koniec")
+            cards_html += metric_card("Śr. dni do TP", f"{result.avg_days_open:.0f}", "średni czas trzymania")
+            cards_html += '</div>'
+            st.markdown(cards_html, unsafe_allow_html=True)
+
+            # ── Wykresy ────────────────────────────────────────
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            chart_tab1, chart_tab2, chart_tab3 = st.tabs(["Equity Curve", "Otwarte kontrakty", "Cena + sygnały"])
+
+            with chart_tab1:
+                fig_eq = go.Figure()
+                fig_eq.add_trace(go.Scatter(
+                    x=result.equity_curve.index, y=result.equity_curve.values,
+                    mode="lines", name="PnL",
+                    line=dict(color="#38bdf8", width=2),
+                    fill="tozeroy", fillcolor="rgba(56,189,248,0.08)",
+                ))
+                fig_eq.add_hline(y=0, line_dash="dot", line_color="#475569", opacity=0.6)
+                fig_eq.update_layout(
+                    template="plotly_dark", height=360,
+                    margin=dict(l=0,r=0,t=24,b=0),
+                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+                    title=dict(text="Equity Curve — skumulowany PnL", font=dict(size=13, color="#94a3b8")),
+                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
+                )
+                st.plotly_chart(fig_eq, use_container_width=True)
+
+            with chart_tab2:
+                fig_open = go.Figure()
+                fig_open.add_trace(go.Scatter(
+                    x=result.daily_open_contracts.index, y=result.daily_open_contracts.values,
+                    mode="lines", name="Kontrakty",
+                    line=dict(color="#f87171", width=1.5),
+                    fill="tozeroy", fillcolor="rgba(248,113,113,0.1)",
+                ))
+                fig_open.add_hline(
+                    y=result.max_concurrent, line_dash="dash", line_color="#fbbf24",
+                    annotation_text=f"Max: {result.max_concurrent}", annotation_position="right",
+                )
+                fig_open.update_layout(
+                    template="plotly_dark", height=360,
+                    margin=dict(l=0,r=0,t=24,b=0),
+                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+                    title=dict(text="Liczba otwartych kontraktów w czasie", font=dict(size=13, color="#94a3b8")),
+                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
+                )
+                st.plotly_chart(fig_open, use_container_width=True)
+
+            with chart_tab3:
+                fig_p = go.Figure()
+                fig_p.add_trace(go.Candlestick(
+                    x=df.index, open=df["Open"], high=df["High"], low=df["Low"], close=df["Close"],
+                    name="Cena",
+                    increasing_line_color="#34d399", decreasing_line_color="#f87171",
+                ))
+                fig_p.add_hline(y=entry_threshold, line_dash="dash", line_color="#f87171", line_width=1.5,
+                    annotation_text=f"Próg: {entry_threshold}", annotation_position="right")
+                fig_p.add_trace(go.Scatter(
+                    x=[t.entry_date for t in result.trades],
+                    y=[t.entry_price for t in result.trades],
+                    mode="markers", name="Kupno",
+                    marker=dict(symbol="triangle-up", size=9, color="#34d399"),
+                ))
+                fig_p.add_trace(go.Scatter(
+                    x=[t.exit_date for t in result.trades if t.closed],
+                    y=[t.exit_price for t in result.trades if t.closed],
+                    mode="markers", name="TP",
+                    marker=dict(symbol="triangle-down", size=9, color="#fbbf24"),
+                ))
+                fig_p.update_layout(
+                    template="plotly_dark", height=460,
+                    margin=dict(l=0,r=0,t=24,b=0),
+                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+                    xaxis_rangeslider_visible=False,
+                    title=dict(text=f"{commodity_name} — wejścia i wyjścia", font=dict(size=13, color="#94a3b8")),
+                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
+                )
+                st.plotly_chart(fig_p, use_container_width=True)
+
+            # ── Optymalizacja ──────────────────────────────────
+            if optimize_enabled:
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                    <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">🔬 Optymalizacja kombinacji</div>
+                    <div style="font-size:0.75rem;color:#64748b">{commodity_name} · próg {entry_threshold}$</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                steps = np.arange(float(opt_step_min), float(opt_step_max) + float(opt_step_inc)*0.5, float(opt_step_inc))
+                tps   = np.arange(float(opt_tp_min),   float(opt_tp_max)   + float(opt_tp_inc)*0.5,   float(opt_tp_inc))
+                total_runs = len(steps) * len(tps)
+
+                if total_runs > 300:
+                    st.warning(f"Za dużo kombinacji ({total_runs}). Zawęź zakres lub zwiększ krok.")
+                else:
+                    opt_results = []
+                    prog = st.progress(0, text="Obliczanie kombinacji...")
+                    for idx_s, s in enumerate(steps):
+                        for idx_t, tp_val in enumerate(tps):
+                            r = run_backtest(
+                                df=df, entry_threshold=entry_threshold,
+                                pyramid_step=round(float(s), 4),
+                                take_profit=round(float(tp_val), 4),
+                                margin_per_contract=margin_per_contract,
+                            )
+                            opt_results.append({
+                                "Krok ($)":        round(float(s), 2),
+                                "TP ($)":          round(float(tp_val), 2),
+                                "PnL ($)":         round(r.total_pnl, 2),
+                                "Transakcji":      r.total_trades,
+                                "Win %":           round(r.win_rate, 1),
+                                "Max kontr.":      r.max_concurrent,
+                                "Max kapital ($)": int(r.max_capital_needed),
+                                "Sr. dni":         int(r.avg_days_open),
+                            })
+                            done = idx_s * len(tps) + idx_t + 1
+                            prog.progress(done / total_runs, text=f"{done}/{total_runs} kombinacji...")
+                    prog.empty()
+
+                    opt_df = pd.DataFrame(opt_results)
+                    opt_df_sorted = opt_df.sort_values("PnL ($)", ascending=False).reset_index(drop=True)
+
+                    medals = [("🥇","gold"), ("🥈","silver"), ("🥉","bronze")]
+                    c1, c2, c3 = st.columns(3)
+                    for col, (medal, cls) in zip([c1, c2, c3], medals):
+                        idx = medals.index((medal, cls))
+                        if len(opt_df_sorted) > idx:
+                            row = opt_df_sorted.iloc[idx]
+                            pnl_cls = "pos" if row["PnL ($)"] >= 0 else "neg"
+                            with col:
+                                st.markdown(f"""
+                                <div class="combo-card {cls}">
+                                    <div class="combo-medal">{medal}</div>
+                                    <div class="combo-params">Krok {row['Krok ($)']}$ / TP {row['TP ($)']}$</div>
+                                    <div class="combo-pnl {pnl_cls}">${row['PnL ($)']:,.2f}</div>
+                                    <div class="combo-stats">
+                                        {row['Transakcji']} transakcji · Win {row['Win %']}%<br>
+                                        Max {row['Max kontr.']} kontr. · ${row['Max kapital ($)']:,}
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+
+                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px'>Heatmapa PnL — Krok vs Take Profit</div>", unsafe_allow_html=True)
+                    pivot = opt_df.pivot(index="Krok ($)", columns="TP ($)", values="PnL ($)")
+                    fig_heat = px.imshow(
+                        pivot,
+                        labels=dict(x="Take Profit ($)", y="Krok ($)", color="PnL ($)"),
+                        color_continuous_scale="RdYlGn",
+                        aspect="auto",
+                        text_auto=True,
                     )
-                    opt_results.append({
-                        "Krok ($)":        round(float(s), 2),
-                        "TP ($)":          round(float(tp), 2),
-                        "PnL ($)":         round(r.total_pnl, 2),
-                        "Transakcji":      r.total_trades,
-                        "Win %":           round(r.win_rate, 1),
-                        "Max kontr.":      r.max_concurrent,
-                        "Max kapital ($)": int(r.max_capital_needed),
-                        "Sr. dni":         int(r.avg_days_open),
-                    })
-                    done = idx_s * len(tps) + idx_t + 1
-                    prog.progress(done / total_runs, text=f"{done}/{total_runs} kombinacji...")
-            prog.empty()
+                    fig_heat.update_layout(
+                        height=380, margin=dict(l=0,r=0,t=8,b=0),
+                        paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+                        font=dict(color="#94a3b8"),
+                        coloraxis_colorbar=dict(title="PnL ($)", tickfont=dict(color="#94a3b8")),
+                    )
+                    fig_heat.update_traces(textfont=dict(size=11))
+                    st.plotly_chart(fig_heat, use_container_width=True)
 
-            opt_df = pd.DataFrame(opt_results)
-            opt_df_sorted = opt_df.sort_values("PnL ($)", ascending=False).reset_index(drop=True)
+                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Top 20 kombinacji</div>", unsafe_allow_html=True)
+                    render_opt_table(opt_df_sorted, top_n=20)
 
-            # Top 3 karty
-            medals = [("🥇","gold"), ("🥈","silver"), ("🥉","bronze")]
-            c1, c2, c3 = st.columns(3)
-            for col, (medal, cls) in zip([c1, c2, c3], medals):
-                if len(opt_df_sorted) > medals.index((medal, cls)):
-                    row = opt_df_sorted.iloc[medals.index((medal, cls))]
-                    pnl_cls = "pos" if row["PnL ($)"] >= 0 else "neg"
-                    with col:
-                        st.markdown(f"""
-                        <div class="combo-card {cls}">
-                            <div class="combo-medal">{medal}</div>
-                            <div class="combo-params">Krok {row['Krok ($)']}$ &nbsp;/&nbsp; TP {row['TP ($)']}$</div>
-                            <div class="combo-pnl {pnl_cls}">${row['PnL ($)']:,.2f}</div>
-                            <div class="combo-stats">
-                                {row['Transakcji']} transakcji · Win {row['Win %']}%<br>
-                                Max {row['Max kontr.']} kontr. · ${row['Max kapital ($)']:,}
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-            st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
-
-            # Heatmapa
-            st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px'>Heatmapa PnL — Krok vs Take Profit</div>", unsafe_allow_html=True)
-            pivot = opt_df.pivot(index="Krok ($)", columns="TP ($)", values="PnL ($)")
-            fig_heat = px.imshow(
-                pivot,
-                labels=dict(x="Take Profit ($)", y="Krok ($)", color="PnL ($)"),
-                color_continuous_scale="RdYlGn",
-                aspect="auto",
-                text_auto=True,
-            )
-            fig_heat.update_layout(
-                height=380, margin=dict(l=0,r=0,t=8,b=0),
-                paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                font=dict(color="#94a3b8"),
-                coloraxis_colorbar=dict(title="PnL ($)", tickfont=dict(color="#94a3b8")),
-            )
-            fig_heat.update_traces(textfont=dict(size=11))
-            st.plotly_chart(fig_heat, use_container_width=True)
-
-            # Tabela Top 20
-            st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Top 20 kombinacji</div>", unsafe_allow_html=True)
-            render_opt_table(opt_df_sorted, top_n=20)
-
-    st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
