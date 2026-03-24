@@ -1,5 +1,6 @@
-streamlit==1.38.0
+streamlit
 pandas
 numpy
 yfinance
 plotly
+pillow>=11.0.0

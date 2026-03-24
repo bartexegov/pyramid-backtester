@@ -119,9 +119,10 @@ st.markdown("""
 # ─────────────────────────────────────────────────────────────
 
 def info(tooltip_text: str) -> str:
-    """Returns an HTML info icon with a hover tooltip."""
-    safe = tooltip_text.replace('"', '&quot;').replace("'", "&#39;")
-    return f'<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{safe}</span></span>'
+    """Info icon using title= attribute - works in all Streamlit versions."""
+    safe = tooltip_text.replace('"', '').replace("'", "").replace('<', '').replace('>', '')
+    style = "display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#334155;color:#94a3b8;font-size:9px;font-weight:700;font-style:normal;cursor:help;margin-left:5px;vertical-align:middle;border:1px solid #475569"
+    return f'<span title="{safe}" style="{style}">i</span>'
 
 
 # Tooltip text for each metric card
@@ -140,19 +141,14 @@ METRIC_TOOLTIPS = {
 }
 
 def metric_card(label, value, sub="", positive=None):
-    cls = ""
-    if positive is True:
-        cls = "positive"
-    elif positive is False:
-        cls = "negative"
+    val_color = "#34d399" if positive is True else "#f87171" if positive is False else "#f1f5f9"
     tooltip = METRIC_TOOLTIPS.get(label, "")
     info_html = info(tooltip) if tooltip else ""
-    return f"""
-    <div class="metric-card">
-        <div class="metric-card-label">{label}{info_html}</div>
-        <div class="metric-card-value {cls}">{value}</div>
-        <div class="metric-card-sub">{sub}</div>
-    </div>"""
+    s_card  = "background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;text-align:center"
+    s_label = "font-size:0.75rem;color:#94a3b8;font-weight:600;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:4px"
+    s_value = f"font-size:1.5rem;font-weight:700;color:{val_color};letter-spacing:-0.02em"
+    s_sub   = "font-size:0.82rem;color:#cbd5e1;margin-top:5px;font-weight:500"
+    return f'<div style="{s_card}"><div style="{s_label}">{label}{info_html}</div><div style="{s_value}">{value}</div><div style="{s_sub}">{sub}</div></div>'
 
 
 # Tooltip text for optimization table columns
@@ -171,50 +167,51 @@ OPT_COL_TIPS = {
     "Avg days":    "Average calendar days from entry to TP hit. Low = fast turnover. High = capital tied up for longer.",
 }
 
-def th(label: str) -> str:
-    """Returns a table header cell with info icon tooltip."""
+def th(label: str, color: str = "#94a3b8") -> str:
+    """Returns a table header cell with inline-style info tooltip."""
     tip = OPT_COL_TIPS.get(label, "")
-    info_html = f'<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{tip}</span></span>' if tip else ""
-    return f'<th>{label}{info_html}</th>'
+    info_html = info(tip) if tip else ""
+    s = f"background:#0f172a;color:{color};font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;padding:10px 14px;text-align:right;border-bottom:1px solid #334155"
+    return f'<th style="{s}">{label}{info_html}</th>'
 
 
 def render_opt_table(df: pd.DataFrame, top_n: int = 20):
+    # All styles inline — works in all Streamlit versions
+    S_TABLE  = "width:100%;border-collapse:collapse;font-size:0.82rem"
+    S_TD     = "padding:9px 14px;border-bottom:1px solid #1e293b;text-align:right;color:#cbd5e1"
+    S_TD_CTR = "padding:9px 14px;border-bottom:1px solid #1e293b;text-align:center;font-weight:600;color:#cbd5e1"
+    RANK_COLORS = {1: ("background:#78350f", "#fbbf24"), 2: ("background:#1e3a5f", "#94a3b8"), 3: ("background:#2d1b09", "#cd7c2f")}
+
     rows_html = ""
     for i, (_, row) in enumerate(df.head(top_n).iterrows()):
         rank = i + 1
-        rank_cls = {1: "rank-1", 2: "rank-2", 3: "rank-3"}.get(rank, "")
+        rb_bg, rb_col = RANK_COLORS.get(rank, ("background:#334155", "#94a3b8"))
+        rb_style = f"display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:0.75rem;font-weight:700;{rb_bg};color:{rb_col}"
         pnl = row["PnL ($)"]
-        pnl_cls = "pnl-pos" if pnl >= 0 else "pnl-neg"
-        ops_val  = row["Total ops"]       if "Total ops"       in row.index else row.get("Total ops", 0)
-        comm_val = row["Total comm ($)"]  if "Total comm ($)"  in row.index else row.get("Total comm ($)", 0.0)
-        rows_html += f"""
-        <tr>
-            <td><span class="rank-badge {rank_cls}">{rank}</span></td>
-            <td>{row['Step ($)']:.2f}</td>
-            <td>{row['TP ($)']:.2f}</td>
-            <td class="{pnl_cls}">${pnl:,.2f}</td>
-            <td>{row['Entries']}</td>
-            <td>{row['Closed (TP)']}</td>
-            <td>{row['Open']}</td>
-            <td style="color:#fbbf24;font-weight:700">{ops_val}</td>
-            <td>{row['Win %']:.1f}%</td>
-            <td style="color:#f87171">${comm_val:,.2f}</td>
-            <td>{row['Max contr.']}</td>
-            <td>${row['Max capital ($)']:,}</td>
-            <td>{row['Avg days']} d</td>
+        pnl_col = "#34d399" if pnl >= 0 else "#f87171"
+        ops_val  = row["Total ops"]       if "Total ops"       in row.index else 0
+        comm_val = row["Total comm ($)"]  if "Total comm ($)"  in row.index else 0.0
+        row_bg = {1: "background:rgba(251,191,36,0.08)", 2: "background:rgba(148,163,184,0.06)", 3: "background:rgba(205,124,47,0.06)"}.get(rank, "")
+        rows_html += f"""<tr style="{row_bg}">
+            <td style="{S_TD_CTR}"><span style="{rb_style}">{rank}</span></td>
+            <td style="{S_TD_CTR}">{row['Step ($)']:.2f}</td>
+            <td style="{S_TD_CTR}">{row['TP ($)']:.2f}</td>
+            <td style="{S_TD};color:{pnl_col};font-weight:700">${pnl:,.2f}</td>
+            <td style="{S_TD}">{row['Entries']}</td>
+            <td style="{S_TD}">{row['Closed (TP)']}</td>
+            <td style="{S_TD}">{row['Open']}</td>
+            <td style="{S_TD};color:#fbbf24;font-weight:700">{ops_val}</td>
+            <td style="{S_TD}">{row['Win %']:.1f}%</td>
+            <td style="{S_TD};color:#f87171">${comm_val:,.2f}</td>
+            <td style="{S_TD}">{row['Max contr.']}</td>
+            <td style="{S_TD}">${row['Max capital ($)']:,}</td>
+            <td style="{S_TD}">{row['Avg days']} d</td>
         </tr>"""
-    html = f"""
-    <table class="opt-table">
-        <thead><tr>
-            <th>#</th>{th("Step")}{th("TP")}
-            {th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
-            <th style="color:#fbbf24">{("Total ops")}<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{OPT_COL_TIPS["Total ops"]}</span></span></th>
-            {th("Win %")}
-            <th style="color:#f87171">Commission<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{OPT_COL_TIPS["Commission"]}</span></span></th>
+    html = f"""<table style="{S_TABLE}"><thead><tr>
+            {th("#")}{th("Step")}{th("TP")}{th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
+            {th("Total ops","#fbbf24")}{th("Win %")}{th("Commission","#f87171")}
             {th("Max contr.")}{th("Max capital")}{th("Avg days")}
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-    </table>"""
+        </tr></thead><tbody>{rows_html}</tbody></table>"""
     st.markdown(html, unsafe_allow_html=True)
 
 
@@ -419,7 +416,7 @@ with strategy_tab1:
         low_date    = str(df["Low"].idxmin())[:10]
 
         if True:
-            cards_html = '<div class="metric-grid">'
+            cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
             total_comm_paid = getattr(result, "total_commission", 0.0)
             total_entries   = len(result.trades)
             total_exits     = result.total_trades
@@ -585,7 +582,7 @@ with strategy_tab1:
                 vp_period_low  = float(vp_df_raw["Low"].min())
                 st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:12px'>✓ {len(vp_df_raw)} sessions · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
 
-                kl = '<div class="metric-grid">'
+                kl = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
                 kl += metric_card("Point of Control", f"${poc:,.2f}", "price with highest volume")
                 kl += metric_card("Value Area Low", f"${va_low:,.2f}", "lower bound of 70% vol ← entry signal", positive=True)
                 kl += metric_card("Value Area High", f"${va_high:,.2f}", "upper bound of 70% vol")
@@ -735,17 +732,14 @@ with strategy_tab1:
                             row = opt_df_sorted.iloc[idx]
                             pnl_cls = "pos" if row["PnL ($)"] >= 0 else "neg"
                             with col:
-                                st.markdown(f"""
-                                <div class="combo-card {cls}">
-                                    <div class="combo-medal">{medal}</div>
-                                    <div class="combo-params">Step {row['Step ($)']}$ / TP {row['TP ($)']}$</div>
-                                    <div class="combo-pnl {pnl_cls}">${row['PnL ($)']:,.2f}</div>
-                                    <div class="combo-stats">
-                                        {row['Entries']} entries · {row['Closed (TP)']} closed · Win {row['Win %']}%<br>
-                                        Max {row['Max contr.']} contr. · ${row['Max capital ($)']:,}
-                                    </div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                border_col = {"gold":"#f59e0b","silver":"#94a3b8","bronze":"#cd7c2f"}.get(cls,"#334155")
+                                pnl_col = "#34d399" if row["PnL ($)"] >= 0 else "#f87171"
+                                s_card   = f"background:#1e293b;border:2px solid {border_col};border-radius:12px;padding:20px;text-align:center;height:100%"
+                                s_medal  = "font-size:2rem;margin-bottom:8px"
+                                s_params = "font-size:1.1rem;font-weight:700;color:#38bdf8;margin-bottom:8px"
+                                s_pnl    = f"font-size:1.4rem;font-weight:800;color:{pnl_col};margin-bottom:8px"
+                                s_stats  = "font-size:0.8rem;color:#94a3b8;line-height:1.6"
+                                st.markdown(f'<div style="{s_card}"><div style="{s_medal}">{medal}</div><div style="{s_params}">Step {row["Step ($)"]}$ / TP {row["TP ($)"]}$</div><div style="{s_pnl}">${row["PnL ($)"]:,.2f}</div><div style="{s_stats}">{row["Entries"]} entries · {row["Closed (TP)"]} closed · Win {row["Win %"]}%<br>Max {row["Max contr."]} contr. · ${row["Max capital ($)"]:,}</div></div>', unsafe_allow_html=True)
 
                     st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
                     st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px'>PnL Heatmap — Step vs Take Profit</div>", unsafe_allow_html=True)
