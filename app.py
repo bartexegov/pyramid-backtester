@@ -113,7 +113,9 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <td>{row['Step ($)']:.2f}</td>
             <td>{row['TP ($)']:.2f}</td>
             <td class="{pnl_cls}">${pnl:,.2f}</td>
-            <td>{row['Trades']}</td>
+            <td>{row['Entries']}</td>
+            <td>{row['Closed (TP)']}</td>
+            <td>{row['Open']}</td>
             <td>{row['Win %']:.1f}%</td>
             <td>{row['Max contr.']}</td>
             <td>${row['Max capital ($)']:,}</td>
@@ -123,7 +125,11 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
     <table class="opt-table">
         <thead><tr>
             <th>#</th><th>Step</th><th>TP</th>
-            <th>PnL</th><th>Trades</th><th>Win %</th>
+            <th>PnL</th>
+            <th title="Total contracts bought">Entries</th>
+            <th title="Contracts closed by TP">Closed (TP)</th>
+            <th title="Still open at end of period">Open</th>
+            <th>Win %</th>
             <th>Max contr.</th><th>Max capital</th><th>Avg days</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
@@ -615,7 +621,9 @@ with strategy_tab1:
                                 "Step ($)":        round(float(s), 2),
                                 "TP ($)":          round(float(tp_val), 2),
                                 "PnL ($)":         round(r.total_pnl, 2),
-                                "Trades":          r.total_trades,
+                                "Entries":         len(r.trades),
+                                "Closed (TP)":     r.total_trades,
+                                "Open":            r.open_trades,
                                 "Win %":           round(r.win_rate, 1),
                                 "Max contr.":      r.max_concurrent,
                                 "Max capital ($)": int(r.max_capital_needed),
