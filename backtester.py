@@ -130,11 +130,15 @@ def run_backtest(
 
         open_trades = still_open
 
-        # ── Krok 2: Reset last_entry_price gdy wszystkie kontrakty zamkniete ─
-        # Jezeli nie ma zadnych otwartych kontraktow — reset pozwala na
-        # nowe wejscie przy kolejnym spadku ponizej progu
+        # ── Krok 2: Aktualizuj last_entry_price po TP ────────────────────────
+        # Po zamknieciu niektorych kontraktow przez TP, last_entry_price musi
+        # wskazywac na NAJNIZSZA cene wsrod pozostalych otwartych kontraktow.
+        # Dzieki temu kolejne dokupowanie liczy sie od faktycznie najnizszego
+        # otwartego kontraktu, a nie od starej wartosci sprzed TP.
         if len(open_trades) == 0:
             last_entry_price = None
+        else:
+            last_entry_price = min(t.entry_price for t in open_trades)
 
         # ── Krok 3: Nowe wejscia ──────────────────────────────────────────────
         # Warunek wejscia: cena (Low) musi byc ponizej progu wejscia
