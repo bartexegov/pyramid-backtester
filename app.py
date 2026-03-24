@@ -41,6 +41,38 @@ st.markdown("""
 .main-title { font-size: 1.75rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.03em; }
 .main-subtitle { font-size: 0.9rem; color: #64748b; }
 .strategy-tag { display: inline-block; background: #0c4a6e; color: #38bdf8 !important; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid #0369a1; margin-bottom: 12px; }
+/* ── Info tooltip ── */
+.info-wrap { position: relative; display: inline-block; }
+.info-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #334155; color: #94a3b8;
+    font-size: 9px; font-weight: 700; font-style: normal;
+    cursor: help; margin-left: 5px; vertical-align: middle;
+    border: 1px solid #475569; flex-shrink: 0; line-height: 1;
+}
+.info-icon:hover { background: #475569; color: #e2e8f0; }
+.info-tooltip {
+    visibility: hidden; opacity: 0;
+    position: absolute; z-index: 9999;
+    bottom: 125%; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #cbd5e1;
+    font-size: 0.75rem; font-weight: 400; line-height: 1.5;
+    padding: 8px 12px; border-radius: 8px;
+    border: 1px solid #334155;
+    width: 220px; text-align: left;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+}
+.info-tooltip::after {
+    content: "";
+    position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #334155;
+}
+.info-wrap:hover .info-tooltip { visibility: visible; opacity: 1; }
+</style>
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
 .metric-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; text-align: center; }
 .metric-card-label { font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
@@ -86,18 +118,64 @@ st.markdown("""
 # HELPERS
 # ─────────────────────────────────────────────────────────────
 
+def info(tooltip_text: str) -> str:
+    """Returns an HTML info icon with a hover tooltip."""
+    safe = tooltip_text.replace('"', '&quot;').replace("'", "&#39;")
+    return f'<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{safe}</span></span>'
+
+
+# Tooltip text for each metric card
+METRIC_TOOLTIPS = {
+    "Total PnL":         "Net profit/loss after deducting all commissions (entry + exit sides). Formula: sum of (exit_price - entry_price) × point_value - round_trip_commission for all closed contracts.",
+    "Total commission":  "Total broker fees paid. Counts every buy AND every sell separately. Formula: (entries + closed_sells) × commission_per_side. Includes fees for open positions (entry side already paid).",
+    "Total operations":  "Total number of broker interactions = Buys + Sells (TP). Each buy costs commission, each sell (TP) costs commission. Important: even open positions already paid entry commission.",
+    "Closed trades":     "Number of contracts that hit their Take Profit and were sold. Each contract bought = 1 trade. Win = PnL > 0 after commission. Loss = PnL ≤ 0 (commission exceeded gross profit).",
+    "Avg PnL / trade":   "Average net PnL per closed contract. Formula: Total PnL ÷ Closed trades. Negative means average commission cost exceeds average gross profit per trade.",
+    "Max contracts":     "Peak number of simultaneously open contracts during the entire backtest period. Occurs at the deepest price drawdown.",
+    "Max capital req.":  "Maximum margin capital needed at the worst moment. Formula: Max contracts × margin per contract. This is the minimum account size you need to survive the worst drawdown.",
+    "Open positions":    "Contracts still open (TP not yet hit) at the end of the backtest period. Entry commission already paid, exit commission not yet paid.",
+    "Avg days to TP":    "Average number of calendar days from entry to TP hit. Measures how long you typically wait for a position to become profitable.",
+    "Period HIGH":       "Highest High price of any bar in the selected date range. Sourced from Yahoo Finance daily OHLCV data.",
+    "Period LOW":        "Lowest Low price of any bar in the selected date range. Sourced from Yahoo Finance daily OHLCV data.",
+}
+
 def metric_card(label, value, sub="", positive=None):
     cls = ""
     if positive is True:
         cls = "positive"
     elif positive is False:
         cls = "negative"
+    tooltip = METRIC_TOOLTIPS.get(label, "")
+    info_html = info(tooltip) if tooltip else ""
     return f"""
     <div class="metric-card">
-        <div class="metric-card-label">{label}</div>
+        <div class="metric-card-label">{label}{info_html}</div>
         <div class="metric-card-value {cls}">{value}</div>
         <div class="metric-card-sub">{sub}</div>
     </div>"""
+
+
+# Tooltip text for optimization table columns
+OPT_COL_TIPS = {
+    "Step":        "Pyramid step — price drop required to add one more contract. Smaller step = more contracts bought = higher commission cost.",
+    "TP":          "Take Profit — how many $ above entry price each contract is sold. Must exceed 2 × commission/side to be profitable.",
+    "PnL":         "Net PnL after all commissions for this Step/TP combination. Formula: gross profit − (Total ops × commission/side).",
+    "Buys":        "Total number of contracts bought (entries). Each buy triggers entry commission immediately.",
+    "Sells (TP)":  "Contracts closed by hitting Take Profit. Each sell triggers exit commission. Sells ≤ Buys (open positions not yet sold).",
+    "Open":        "Contracts still open at end of period — bought and paid entry commission, but TP not yet hit.",
+    "Total ops":   "Buys + Sells = total broker interactions. Formula: Entries + Closed (TP). Multiply by commission/side to get total cost.",
+    "Win %":       "Percentage of closed trades with positive net PnL (after commission). 100% = every closed contract was profitable net of fees.",
+    "Commission":  "Total commission cost. Formula: Total ops × commission/side. Red because it directly reduces your PnL.",
+    "Max contr.":  "Peak simultaneous open contracts — occurs at deepest price drop. Determines max capital required.",
+    "Max capital": "Max contracts × margin/contract = minimum account size needed to survive the worst drawdown.",
+    "Avg days":    "Average calendar days from entry to TP hit. Low = fast turnover. High = capital tied up for longer.",
+}
+
+def th(label: str) -> str:
+    """Returns a table header cell with info icon tooltip."""
+    tip = OPT_COL_TIPS.get(label, "")
+    info_html = f'<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{tip}</span></span>' if tip else ""
+    return f'<th>{label}{info_html}</th>'
 
 
 def render_opt_table(df: pd.DataFrame, top_n: int = 20):
@@ -128,15 +206,12 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
     html = f"""
     <table class="opt-table">
         <thead><tr>
-            <th>#</th><th>Step</th><th>TP</th>
-            <th>PnL</th>
-            <th title="Total contracts bought">Buys</th>
-            <th title="Contracts closed by TP">Sells (TP)</th>
-            <th title="Still open at end">Open</th>
-            <th title="Buys + Sells = total broker interactions" style="color:#fbbf24">Total ops</th>
-            <th>Win %</th>
-            <th title="Total ops x commission/side" style="color:#f87171">Commission</th>
-            <th>Max contr.</th><th>Max capital</th><th>Avg days</th>
+            <th>#</th>{th("Step")}{th("TP")}
+            {th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
+            <th style="color:#fbbf24">{("Total ops")}<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{OPT_COL_TIPS["Total ops"]}</span></span></th>
+            {th("Win %")}
+            <th style="color:#f87171">Commission<span class="info-wrap"><i class="info-icon">i</i><span class="info-tooltip">{OPT_COL_TIPS["Commission"]}</span></span></th>
+            {th("Max contr.")}{th("Max capital")}{th("Avg days")}
         </tr></thead>
         <tbody>{rows_html}</tbody>
     </table>"""
