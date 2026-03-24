@@ -539,12 +539,13 @@ with strategy_tab1:
                     if st.button(qlabel, key=f"vp_q_{i}", use_container_width=True):
                         st.session_state["vp_days"] = qday
 
-            vp_start_default = date.today() - timedelta(days=st.session_state["vp_days"])
+            vp_min_date = date(1950, 1, 1)
+            vp_start_default = max(vp_min_date, date.today() - timedelta(days=st.session_state["vp_days"]))
             vp_dc1, vp_dc2 = st.columns(2)
             with vp_dc1:
-                vp_start = st.date_input("Od", value=vp_start_default, key="vp_start2", min_value=date(1990,1,1), max_value=date.today())
+                vp_start = st.date_input("Od", value=vp_start_default, key="vp_start2", min_value=vp_min_date, max_value=date.today())
             with vp_dc2:
-                vp_end = st.date_input("Do", value=date.today(), key="vp_end2", min_value=date(1990,1,2), max_value=date.today())
+                vp_end = st.date_input("Do", value=date.today(), key="vp_end2", min_value=vp_min_date, max_value=date.today())
 
             with st.spinner("Obliczanie Volume Profile..."):
                 try:
