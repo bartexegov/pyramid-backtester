@@ -8,6 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date, timedelta
+import collections
 
 from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, get_available_contracts, find_support_zones, compute_volume_profile
 
@@ -23,119 +24,31 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────────────────────
-# GLOBAL CSS — styl Tailwind-inspired
+# GLOBAL CSS
 # ─────────────────────────────────────────────────────────────
 
 st.markdown("""
 <style>
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: #0f172a;
-    border-right: 1px solid #1e293b;
-}
+[data-testid="stSidebar"] { background: #0f172a; border-right: 1px solid #1e293b; }
 [data-testid="stSidebar"] * { color: #e2e8f0 !important; }
 [data-testid="stSidebarContent"] { padding: 0 !important; }
-
-/* ── Sidebar sekcje ── */
-.sidebar-header {
-    background: #1e293b;
-    padding: 20px 20px 16px 20px;
-    border-bottom: 1px solid #334155;
-}
-.sidebar-logo {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #38bdf8 !important;
-    letter-spacing: -0.02em;
-}
+.sidebar-header { background: #1e293b; padding: 20px 20px 16px 20px; border-bottom: 1px solid #334155; }
+.sidebar-logo { font-size: 1.25rem; font-weight: 700; color: #38bdf8 !important; letter-spacing: -0.02em; }
 .sidebar-logo span { color: #94a3b8 !important; font-weight: 400; font-size:0.9rem; }
-.sidebar-section {
-    padding: 16px 20px 8px 20px;
-    border-bottom: 1px solid #1e293b;
-}
-.sidebar-section-title {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #64748b !important;
-    margin-bottom: 12px;
-}
-.sidebar-badge {
-    display: inline-block;
-    background: #0ea5e9;
-    color: #fff !important;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    margin-left: 6px;
-}
-
-/* ── Main area ── */
-.main-header {
-    padding: 24px 0 8px 0;
-    border-bottom: 1px solid #1e293b;
-    margin-bottom: 24px;
-}
-.main-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #f1f5f9;
-    letter-spacing: -0.03em;
-}
+.sidebar-section { padding: 16px 20px 8px 20px; border-bottom: 1px solid #1e293b; }
+.sidebar-section-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b !important; margin-bottom: 12px; }
+.main-header { padding: 24px 0 8px 0; border-bottom: 1px solid #1e293b; margin-bottom: 24px; }
+.main-title { font-size: 1.75rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.03em; }
 .main-subtitle { font-size: 0.9rem; color: #64748b; }
-.strategy-tag {
-    display: inline-block;
-    background: #0c4a6e;
-    color: #38bdf8 !important;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 6px;
-    border: 1px solid #0369a1;
-    margin-bottom: 12px;
-}
-
-/* ── Metric cards ── */
-.metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px;
-    margin: 16px 0;
-}
-.metric-card {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 10px;
-    padding: 16px;
-    text-align: center;
-}
-.metric-card-label {
-    font-size: 0.75rem;
-    color: #94a3b8;
-    font-weight: 600;
-    margin-bottom: 6px;
-}
-.metric-card-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #f1f5f9;
-    letter-spacing: -0.02em;
-}
+.strategy-tag { display: inline-block; background: #0c4a6e; color: #38bdf8 !important; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid #0369a1; margin-bottom: 12px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+.metric-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; text-align: center; }
+.metric-card-label { font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 6px; }
+.metric-card-value { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.02em; }
 .metric-card-value.positive { color: #34d399; }
 .metric-card-value.negative { color: #f87171; }
 .metric-card-sub { font-size: 0.82rem; color: #cbd5e1; margin-top: 5px; font-weight: 500; }
-
-/* ── Top combo cards ── */
-.combo-card {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 12px;
-    padding: 20px;
-    text-align: center;
-    height: 100%;
-}
+.combo-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; text-align: center; height: 100%; }
 .combo-card.gold { border-color: #f59e0b; }
 .combo-card.silver { border-color: #94a3b8; }
 .combo-card.bronze { border-color: #cd7c2f; }
@@ -145,31 +58,10 @@ st.markdown("""
 .combo-pnl.pos { color: #34d399; }
 .combo-pnl.neg { color: #f87171; }
 .combo-stats { font-size: 0.8rem; color: #94a3b8; line-height: 1.6; }
-
-/* ── Optimization table ── */
-.opt-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.82rem;
-}
-.opt-table th {
-    background: #0f172a;
-    color: #94a3b8;
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 10px 14px;
-    text-align: right;
-    border-bottom: 1px solid #334155;
-}
+.opt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.opt-table th { background: #0f172a; color: #94a3b8; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; text-align: right; border-bottom: 1px solid #334155; }
 .opt-table th:first-child, .opt-table th:nth-child(2) { text-align: center; }
-.opt-table td {
-    padding: 9px 14px;
-    border-bottom: 1px solid #1e293b;
-    text-align: right;
-    color: #cbd5e1;
-}
+.opt-table td { padding: 9px 14px; border-bottom: 1px solid #1e293b; text-align: right; color: #cbd5e1; }
 .opt-table td:first-child, .opt-table td:nth-child(2) { text-align: center; font-weight: 600; }
 .opt-table tr:hover td { background: #1e293b; }
 .opt-table tr:first-child td { background: rgba(251,191,36,0.08); }
@@ -177,51 +69,15 @@ st.markdown("""
 .opt-table tr:nth-child(3) td { background: rgba(205,124,47,0.06); }
 .pnl-pos { color: #34d399 !important; font-weight: 700; }
 .pnl-neg { color: #f87171 !important; font-weight: 700; }
-.rank-badge {
-    display: inline-block;
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    font-size: 0.75rem;
-    font-weight: 700;
-    line-height: 24px;
-    text-align: center;
-    background: #334155;
-    color: #94a3b8;
-}
+.rank-badge { display: inline-block; width: 24px; height: 24px; border-radius: 50%; font-size: 0.75rem; font-weight: 700; line-height: 24px; text-align: center; background: #334155; color: #94a3b8; }
 .rank-1 { background: #78350f; color: #fbbf24; }
 .rank-2 { background: #1e3a5f; color: #94a3b8; }
 .rank-3 { background: #2d1b09; color: #cd7c2f; }
-
-/* ── Inputs ── */
-[data-testid="stNumberInput"] input,
-[data-testid="stSelectbox"] select {
-    background: #1e293b !important;
-    border: 1px solid #334155 !important;
-    border-radius: 6px !important;
-    color: #e2e8f0 !important;
-}
-.stButton button[kind="primary"] {
-    background: linear-gradient(135deg, #0ea5e9, #6366f1) !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.02em !important;
-    padding: 10px 0 !important;
-    transition: opacity 0.2s !important;
-}
+[data-testid="stNumberInput"] input, [data-testid="stSelectbox"] select { background: #1e293b !important; border: 1px solid #334155 !important; border-radius: 6px !important; color: #e2e8f0 !important; }
+.stButton button[kind="primary"] { background: linear-gradient(135deg, #0ea5e9, #6366f1) !important; border: none !important; border-radius: 8px !important; font-weight: 600 !important; letter-spacing: 0.02em !important; padding: 10px 0 !important; transition: opacity 0.2s !important; }
 .stButton button[kind="primary"]:hover { opacity: 0.9 !important; }
-
-/* ── Tabs ── */
-[data-testid="stTabs"] [role="tab"] {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #64748b;
-    padding: 8px 16px;
-}
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-    color: #38bdf8;
-    border-bottom: 2px solid #38bdf8;
-}
+[data-testid="stTabs"] [role="tab"] { font-size: 0.85rem; font-weight: 600; color: #64748b; padding: 8px 16px; }
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] { color: #38bdf8; border-bottom: 2px solid #38bdf8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -254,21 +110,21 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         rows_html += f"""
         <tr>
             <td><span class="rank-badge {rank_cls}">{rank}</span></td>
-            <td>{row['Krok ($)']:.2f} $</td>
-            <td>{row['TP ($)']:.2f} $</td>
+            <td>{row['Step ($)']:.2f}</td>
+            <td>{row['TP ($)']:.2f}</td>
             <td class="{pnl_cls}">${pnl:,.2f}</td>
-            <td>{row['Transakcji']}</td>
+            <td>{row['Trades']}</td>
             <td>{row['Win %']:.1f}%</td>
-            <td>{row['Max kontr.']}</td>
-            <td>${row['Max kapital ($)']:,}</td>
-            <td>{row['Sr. dni']} dni</td>
+            <td>{row['Max contr.']}</td>
+            <td>${row['Max capital ($)']:,}</td>
+            <td>{row['Avg days']} d</td>
         </tr>"""
     html = f"""
     <table class="opt-table">
         <thead><tr>
-            <th>#</th><th>Krok</th><th>TP</th>
-            <th>PnL</th><th>Transakcji</th><th>Win %</th>
-            <th>Max kontr.</th><th>Max kapital</th><th>Sr. dni</th>
+            <th>#</th><th>Step</th><th>TP</th>
+            <th>PnL</th><th>Trades</th><th>Win %</th>
+            <th>Max contr.</th><th>Max capital</th><th>Avg days</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
     </table>"""
@@ -284,86 +140,74 @@ with st.sidebar:
     <div class="sidebar-header">
         <div class="sidebar-logo">
             📊 Pyramid Backtester
-            <br><span>Testuj strategie na surowcach</span>
+            <br><span>Test strategies on commodity futures</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     # ── Instrument ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Instrument</div>', unsafe_allow_html=True)
-    commodity_name = st.selectbox("Surowiec", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
+    commodity_name = st.selectbox("Commodity", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
 
-    # Tryb: kontrakt ciagly vs konkretny
-    contract_mode = st.radio("Typ kontraktu", ["Ciągły (=F)", "Konkretny miesiąc"], horizontal=True, label_visibility="collapsed")
+    contract_mode = st.radio("Contract type", ["Continuous (=F)", "Specific month"], horizontal=True, label_visibility="collapsed")
 
-    if contract_mode == "Ciągły (=F)":
+    if contract_mode == "Continuous (=F)":
         symbol = COMMODITY_SYMBOLS[commodity_name]
-        st.caption(f"Symbol: `{symbol}` — automatyczny rollover na front month")
+        st.caption(f"Symbol: `{symbol}` — auto rollover to front month")
     else:
-        # Pobierz dostepne kontrakty
         contract_info = COMMODITY_CONTRACT_INFO.get(commodity_name)
         if contract_info is None:
-            st.warning("Brak danych kontraktów dla tego instrumentu.")
+            st.warning("No contract data available for this instrument.")
             symbol = COMMODITY_SYMBOLS[commodity_name]
         else:
-            with st.spinner("Pobieranie dostępnych kontraktów..."):
+            with st.spinner("Loading available contracts..."):
                 contracts = get_available_contracts(commodity_name, years_ahead=2)
-
             if not contracts:
-                st.warning("Nie znaleziono aktywnych kontraktów. Używam kontraktu ciągłego.")
+                st.warning("No active contracts found. Using continuous contract.")
                 symbol = COMMODITY_SYMBOLS[commodity_name]
             else:
-                # Przygotuj etykiety dla selectbox
                 contract_labels = []
                 for c in contracts:
                     oi_str = f"{c['open_interest']:,}" if c['open_interest'] else "?"
-                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  wygasa {c['expiry']}  |  OI: {oi_str}")
-
-                selected_label = st.selectbox("Wybierz kontrakt", contract_labels, label_visibility="collapsed")
+                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  exp {c['expiry']}  |  OI: {oi_str}")
+                selected_label = st.selectbox("Select contract", contract_labels, label_visibility="collapsed")
                 selected_idx = contract_labels.index(selected_label)
                 selected = contracts[selected_idx]
                 symbol = selected["symbol"]
-
-                # Szczegoly kontraktu
                 ci = COMMODITY_CONTRACT_INFO[commodity_name]
                 st.caption(f"Symbol: `{symbol}`")
-                detail1 = f"Wygasa: {selected['expiry']}  |  OI: {selected['open_interest']:,}"
-                detail2 = f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Rozmiar: {ci['contract_size']:,} {ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'}"
-                st.caption(detail1)
-                st.caption(detail2)
+                st.caption(f"Expires: {selected['expiry']}  |  OI: {selected['open_interest']:,}")
+                unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
+                st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
 
-    # Oblicz point_value dla wybranego instrumentu
-    # point_value = ile $ warta jest zmiana ceny o 1 punkt
-    # = tick_value / tick_size
-    # Dla kontraktu ciaglego bez pelnej specyfikacji — point_value=1.0
     _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
-    if _ci and contract_mode == "Konkretny miesiąc":
+    if _ci and contract_mode == "Specific month":
         point_value = _ci["tick_value"] / _ci["tick"]
     else:
         point_value = 1.0
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Okres ───────────────────────────────────────────────
-    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Okres backtestów</div>', unsafe_allow_html=True)
+    # ── Date range ──────────────────────────────────────────
+    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Backtest period</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input("Od", value=date.today() - timedelta(days=365*2), min_value=date(2000,1,1), max_value=date.today())
+        start_date = st.date_input("From", value=date.today() - timedelta(days=365*2), min_value=date(2000,1,1), max_value=date.today())
     with col2:
-        end_date = st.date_input("Do", value=date.today(), min_value=date(2000,1,2), max_value=date.today())
+        end_date = st.date_input("To", value=date.today(), min_value=date(2000,1,2), max_value=date.today())
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Strategia ───────────────────────────────────────────
-    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Parametry strategii</div>', unsafe_allow_html=True)
-    entry_threshold = st.number_input("Cena wejścia ($)", min_value=0.01, max_value=100000.0, value=470.0, step=1.0, format="%.2f", help="Kupuj gdy Low < tej ceny")
-    pyramid_step = st.number_input("Krok dokupowania ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Co ile $ w dół dokupujesz kolejny kontrakt")
-    take_profit = st.number_input("Take Profit ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Ile $ powyżej ceny kupna zamykasz kontrakt")
-    margin_per_contract = st.number_input("Margin / kontrakt ($)", min_value=100.0, max_value=1000000.0, value=1500.0, step=100.0, format="%.0f", help="Depozyt zabezpieczający u brokera")
+    # ── Strategy parameters ─────────────────────────────────
+    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Strategy parameters</div>', unsafe_allow_html=True)
+    entry_threshold = st.number_input("Entry threshold ($)", min_value=0.01, max_value=100000.0, value=470.0, step=1.0, format="%.2f", help="Buy when Low < this price")
+    pyramid_step = st.number_input("Pyramid step ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Add one contract every X$ drop from last entry")
+    take_profit = st.number_input("Take Profit ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Close each contract X$ above its entry price")
+    margin_per_contract = st.number_input("Margin / contract ($)", min_value=100.0, max_value=1000000.0, value=1500.0, step=100.0, format="%.0f", help="Broker margin requirement per contract")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Optymalizacja ────────────────────────────────────────
-    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Optymalizacja kroków</div>', unsafe_allow_html=True)
-    optimize_enabled = st.checkbox("Włącz optymalizację", value=False, help="Przetestuj wszystkie kombinacje krok × TP automatycznie")
+    # ── Optimization ────────────────────────────────────────
+    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Step optimization</div>', unsafe_allow_html=True)
+    optimize_enabled = st.checkbox("Enable optimization", value=False, help="Test all step × TP combinations automatically")
 
     opt_step_min = 2.0
     opt_step_max = 10.0
@@ -373,73 +217,67 @@ with st.sidebar:
     opt_tp_inc   = 1.0
 
     if optimize_enabled:
-        st.caption("**Krok dokupowania**")
+        st.caption("**Pyramid step range**")
         cs1, cs2, cs3 = st.columns(3)
         with cs1:
-            opt_step_min = st.number_input("Od", value=2.0, step=0.25, format="%.2f", key="smin")
+            opt_step_min = st.number_input("From", value=2.0, step=0.25, format="%.2f", key="smin")
         with cs2:
-            opt_step_max = st.number_input("Do", value=10.0, step=0.25, format="%.2f", key="smax")
+            opt_step_max = st.number_input("To", value=10.0, step=0.25, format="%.2f", key="smax")
         with cs3:
-            opt_step_inc = st.number_input("Co", value=1.0, step=0.25, format="%.2f", key="sinc")
-
-        st.caption("**Take Profit**")
+            opt_step_inc = st.number_input("By", value=1.0, step=0.25, format="%.2f", key="sinc")
+        st.caption("**Take Profit range**")
         ct1, ct2, ct3 = st.columns(3)
         with ct1:
-            opt_tp_min = st.number_input("Od", value=2.0, step=0.25, format="%.2f", key="tmin")
+            opt_tp_min = st.number_input("From", value=2.0, step=0.25, format="%.2f", key="tmin")
         with ct2:
-            opt_tp_max = st.number_input("Do", value=10.0, step=0.25, format="%.2f", key="tmax")
+            opt_tp_max = st.number_input("To", value=10.0, step=0.25, format="%.2f", key="tmax")
         with ct3:
-            opt_tp_inc = st.number_input("Co", value=1.0, step=0.25, format="%.2f", key="tinc")
-
+            opt_tp_inc = st.number_input("By", value=1.0, step=0.25, format="%.2f", key="tinc")
         n_s = max(1, round((opt_step_max - opt_step_min) / opt_step_inc) + 1)
         n_t = max(1, round((opt_tp_max - opt_tp_min) / opt_tp_inc) + 1)
-        st.caption(f"Łącznie: **{n_s * n_t} kombinacji**")
+        st.caption(f"Total: **{n_s * n_t} combinations**")
 
     st.markdown('</div>', unsafe_allow_html=True)
-
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    run_button = st.button("▶ Uruchom backtest", type="primary", use_container_width=True)
-    st.markdown("<div style='padding:0 20px 20px 20px'><p style='font-size:0.7rem;color:#475569;text-align:center;margin-top:8px'>Dane: Yahoo Finance · tylko edukacyjnie</p></div>", unsafe_allow_html=True)
+    run_button = st.button("▶ Run Backtest", type="primary", use_container_width=True)
+    st.markdown("<div style='padding:0 20px 20px 20px'><p style='font-size:0.7rem;color:#475569;text-align:center;margin-top:8px'>Data: Yahoo Finance · for educational purposes only</p></div>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────
-# MAIN — zakładki strategii
+# MAIN
 # ─────────────────────────────────────────────────────────────
 
 st.markdown("""
 <div class="main-header">
     <div class="main-title">Pyramid Backtester</div>
-    <div class="main-subtitle">Analiza strategii pyramidingu na kontraktach futures</div>
+    <div class="main-subtitle">Test pyramid long strategies on commodity futures</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Zakładki
 strategy_tab1, strategy_tab2 = st.tabs([
-    "📈 Strategia 1 — Pyramid Long",
-    "➕ Dodaj strategię (wkrótce)",
+    "📈 Strategy 1 — Pyramid Long",
+    "➕ Add strategy (coming soon)",
 ])
 
 with strategy_tab2:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.info("Tu pojawią się kolejne strategie. Np. Pyramid Short, Mean Reversion, Breakout itp.")
+    st.info("More strategies coming soon — Pyramid Short, Mean Reversion, Breakout, etc.")
 
 with strategy_tab1:
 
-    st.markdown('<div class="strategy-tag">Pyramid Long · Kupuj poniżej progu · TP per kontrakt</div>', unsafe_allow_html=True)
+    st.markdown('<div class="strategy-tag">Pyramid Long · Buy below threshold · TP per contract</div>', unsafe_allow_html=True)
 
-    # Uruchom backtest i zapisz wyniki w session_state
     if run_button:
         df_new = None
-        with st.spinner(f"Pobieranie danych {commodity_name}..."):
+        with st.spinner(f"Fetching data for {commodity_name}..."):
             try:
                 df_new = fetch_data(symbol, start=start_date, end=end_date)
             except Exception as e:
-                st.error(f"Błąd pobierania danych: {e}")
-
+                st.error(f"Data fetch error: {e}")
         if df_new is None or df_new.empty:
-            st.error("Brak danych. Sprawdź symbol lub zmień zakres dat.")
+            st.error("No data returned. Check symbol or adjust date range.")
         else:
-            with st.spinner("Obliczanie..."):
+            with st.spinner("Running backtest..."):
                 result_new = run_backtest(
                     df=df_new,
                     entry_threshold=entry_threshold,
@@ -458,13 +296,12 @@ with strategy_tab1:
             st.session_state["bt_threshold"]   = entry_threshold
             st.session_state["bt_point_value"] = point_value
 
-    # Renderuj wyniki z session_state (przetrwają każdy rerun)
     if "bt_result" not in st.session_state:
         st.markdown("""
         <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:32px;text-align:center;margin-top:24px">
             <div style="font-size:2.5rem;margin-bottom:12px">👈</div>
-            <div style="font-size:1.1rem;font-weight:600;color:#e2e8f0;margin-bottom:8px">Ustaw parametry i uruchom backtest</div>
-            <div style="font-size:0.85rem;color:#64748b">Wybierz surowiec, daty i parametry strategii w panelu po lewej,<br>następnie kliknij <b>Uruchom backtest</b>.</div>
+            <div style="font-size:1.1rem;font-weight:600;color:#e2e8f0;margin-bottom:8px">Set parameters and run the backtest</div>
+            <div style="font-size:0.85rem;color:#64748b">Choose a commodity, date range and strategy parameters in the left panel,<br>then click <b>Run Backtest</b>.</div>
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -475,14 +312,13 @@ with strategy_tab1:
         entry_threshold_disp     = st.session_state["bt_threshold"]
         pv                       = st.session_state.get("bt_point_value", 1.0)
 
-        # Etykieta PnL — rozni sie w zaleznosci od point_value
-        pnl_currency = "USD" if pv > 1.0 else "pkt"
-        pv_info = f"point value: {pv:.0f} $/pkt" if pv > 1.0 else "kontrakt ciagly (PnL w punktach)"
+        pnl_currency = "USD" if pv > 1.0 else "pts"
+        pv_info = f"point value: {pv:.0f} $/pt" if pv > 1.0 else "continuous contract (PnL in price points)"
 
-        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} sesji · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} — PnL wyświetlany w <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} sessions · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} — PnL displayed in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
 
-        # ── Metryki ────────────────────────────────────────────
+        # ── Metrics ────────────────────────────────────────────
         avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
         pnl_pos = result.total_pnl >= 0
         period_high = float(df["High"].max())
@@ -492,22 +328,22 @@ with strategy_tab1:
 
         if True:
             cards_html = '<div class="metric-grid">'
-            cards_html += metric_card("Zysk / Strata", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} całkowity PnL", positive=pnl_pos)
-            cards_html += metric_card("Transakcji", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
-            cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "procent wygranych", positive=result.win_rate >= 50)
-            cards_html += metric_card("Śr. PnL / transakcję", f"${avg_pnl:.2f}", "per zamknięty kontrakt", positive=avg_pnl >= 0)
-            cards_html += metric_card("Max kontraktów", str(result.max_concurrent), "jednocześnie otwartych")
-            cards_html += metric_card("Max kapitał", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} kontr. × ${margin_per_contract_disp:,.0f}")
-            cards_html += metric_card("Otwarte pozycje", str(result.open_trades), "niezamknięte na koniec")
-            cards_html += metric_card("Śr. dni do TP", f"{result.avg_days_open:.0f}", "średni czas trzymania")
-            cards_html += metric_card("MAX HIGH okresu", f"${period_high:,.2f}", f"najwyższa cena · {high_date}")
-            cards_html += metric_card("MIN LOW okresu", f"${period_low:,.2f}", f"najniższa cena · {low_date}")
+            cards_html += metric_card("Total PnL", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} cumulative", positive=pnl_pos)
+            cards_html += metric_card("Closed trades", str(result.total_trades), f"{result.winning_trades}W / {result.losing_trades}L")
+            cards_html += metric_card("Win Rate", f"{result.win_rate:.1f}%", "% of winning trades", positive=result.win_rate >= 50)
+            cards_html += metric_card("Avg PnL / trade", f"${avg_pnl:.2f}", "per closed contract", positive=avg_pnl >= 0)
+            cards_html += metric_card("Max contracts", str(result.max_concurrent), "open simultaneously")
+            cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f}")
+            cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
+            cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
+            cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
+            cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
             cards_html += '</div>'
             st.markdown(cards_html, unsafe_allow_html=True)
 
-            # ── Wykresy ────────────────────────────────────────
+            # ── Charts ────────────────────────────────────────
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            chart_tab1, chart_tab2, chart_tab3 = st.tabs(["Equity Curve", "Otwarte kontrakty", "Cena + sygnały"])
+            chart_tab1, chart_tab2, chart_tab3 = st.tabs(["Equity Curve", "Open contracts", "Price + signals"])
 
             with chart_tab1:
                 fig_eq = go.Figure()
@@ -522,7 +358,7 @@ with strategy_tab1:
                     template="plotly_dark", height=360,
                     margin=dict(l=0,r=0,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    title=dict(text="Equity Curve — skumulowany PnL", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text="Equity Curve — cumulative PnL", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_eq, use_container_width=True)
@@ -531,7 +367,7 @@ with strategy_tab1:
                 fig_open = go.Figure()
                 fig_open.add_trace(go.Scatter(
                     x=result.daily_open_contracts.index, y=result.daily_open_contracts.values,
-                    mode="lines", name="Kontrakty",
+                    mode="lines", name="Contracts",
                     line=dict(color="#f87171", width=1.5),
                     fill="tozeroy", fillcolor="rgba(248,113,113,0.1)",
                 ))
@@ -543,16 +379,12 @@ with strategy_tab1:
                     template="plotly_dark", height=360,
                     margin=dict(l=0,r=0,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    title=dict(text="Liczba otwartych kontraktów w czasie", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text="Number of open contracts over time", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_open, use_container_width=True)
 
             with chart_tab3:
-                import collections
-
-                # Grupuj wejscia i TP per bar — wszystkie na tym samym barze
-                # pokazane jako jeden marker z liczba kontraktow w tooltipie
                 entry_groups = collections.defaultdict(list)
                 for t in result.trades:
                     entry_groups[t.entry_date].append(t.entry_price)
@@ -565,54 +397,46 @@ with strategy_tab1:
                         tp_pnl_groups[t.exit_date] += t.pnl
 
                 fig_p = go.Figure()
-
                 fig_p.add_trace(go.Candlestick(
                     x=df.index, open=df["Open"], high=df["High"],
-                    low=df["Low"], close=df["Close"], name="Cena",
+                    low=df["Low"], close=df["Close"], name="Price",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
                 ))
-
                 fig_p.add_hline(y=entry_threshold_disp, line_dash="dash",
                     line_color="#f87171", line_width=1.5,
-                    annotation_text=f"Próg {entry_threshold_disp}$",
+                    annotation_text=f"Threshold {entry_threshold_disp}$",
                     annotation_position="right")
 
-                # Trójkąty kupna — mały stały rozmiar, pozycja pod Low baru
                 if entry_groups:
                     ex   = list(entry_groups.keys())
                     ecnt = [len(v) for v in entry_groups.values()]
                     eavg = [sum(v)/len(v) for v in entry_groups.values()]
-                    # Pozycja Y: lekko pod Low danego baru
                     ey = []
+                    price_range = float(df["High"].max() - df["Low"].min())
+                    offset = price_range * 0.008
                     for d in ex:
                         if d in df.index:
-                            bar_low = float(df.loc[d, "Low"])
-                            price_range = float(df["High"].max() - df["Low"].min())
-                            offset = price_range * 0.008
-                            ey.append(bar_low - offset)
+                            ey.append(float(df.loc[d, "Low"]) - offset)
                         else:
                             ey.append(eavg[ex.index(d)])
-                    etxt = [f"Kupno x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
+                    etxt = [f"Buy x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
                     fig_p.add_trace(go.Scatter(
-                        x=ex, y=ey, mode="markers", name="Kupno",
+                        x=ex, y=ey, mode="markers", name="Buy",
                         marker=dict(symbol="triangle-up", size=8, color="#34d399", line=dict(width=0)),
                         hovertext=etxt, hoverinfo="text",
                     ))
 
-                # Trójkąty TP — mały stały rozmiar, pozycja nad High baru
                 if tp_groups:
                     tx   = list(tp_groups.keys())
                     tcnt = [len(v) for v in tp_groups.values()]
                     tavg = [sum(v)/len(v) for v in tp_groups.values()]
                     tpnl = [tp_pnl_groups[d] for d in tx]
-                    # Pozycja Y: lekko nad High danego baru
                     ty = []
+                    price_range = float(df["High"].max() - df["Low"].min())
+                    offset = price_range * 0.008
                     for d in tx:
                         if d in df.index:
-                            bar_high = float(df.loc[d, "High"])
-                            price_range = float(df["High"].max() - df["Low"].min())
-                            offset = price_range * 0.008
-                            ty.append(bar_high + offset)
+                            ty.append(float(df.loc[d, "High"]) + offset)
                         else:
                             ty.append(tavg[tx.index(d)])
                     ttxt = [f"TP x{c} @ {p:.2f} | PnL +{pnl:.2f}" for c, p, pnl in zip(tcnt, tavg, tpnl)]
@@ -627,25 +451,25 @@ with strategy_tab1:
                     margin=dict(l=0, r=0, t=24, b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name_disp} — cena z sygnałami (hover = szczegóły)", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"{commodity_name_disp} — price with signals (hover for details)", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"),
                     yaxis=dict(gridcolor="#1e293b"),
                     legend=dict(orientation="h", y=1.02, x=0, font=dict(color="#94a3b8")),
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
-            # ── Volume Profile — sekcja pod wykresami (nie w tab, bo button resetuje tab) ──
+            # ── Volume Profile ──────────────────────────────────
             st.markdown("<div style='margin-top:24px;border-top:1px solid #1e293b;padding-top:20px'></div>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:12px'>🔥 Volume Profile — strefy wsparcia</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:12px'>🔥 Volume Profile — support zones</div>", unsafe_allow_html=True)
 
             vp_min_date = date(1950, 1, 1)
             vp_dc1, vp_dc2 = st.columns(2)
             with vp_dc1:
-                vp_start = st.date_input("Od", value=date.today() - timedelta(days=365*10), key="vp_start2", min_value=vp_min_date, max_value=date.today())
+                vp_start = st.date_input("From", value=date.today() - timedelta(days=365*10), key="vp_start2", min_value=vp_min_date, max_value=date.today())
             with vp_dc2:
-                vp_end = st.date_input("Do", value=date.today(), key="vp_end2", min_value=vp_min_date, max_value=date.today())
+                vp_end = st.date_input("To", value=date.today(), key="vp_end2", min_value=vp_min_date, max_value=date.today())
 
-            with st.spinner("Obliczanie Volume Profile..."):
+            with st.spinner("Computing Volume Profile..."):
                 try:
                     vp_df_raw = fetch_data(symbol, start=vp_start, end=vp_end)
                     if vp_df_raw is not None and not vp_df_raw.empty:
@@ -658,29 +482,26 @@ with strategy_tab1:
                     vp_ok = False
 
             if not vp_ok:
-                st.error("Brak danych VP. Zmień zakres dat.")
+                st.error("No VP data. Adjust date range.")
             else:
                 vp_period_high = float(vp_df_raw["High"].max())
                 vp_period_low  = float(vp_df_raw["Low"].min())
+                st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:12px'>✓ {len(vp_df_raw)} sessions · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
 
-                st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:12px'>✓ {len(vp_df_raw)} sesji · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
-
-                # Kluczowe poziomy
                 kl = '<div class="metric-grid">'
-                kl += metric_card("Point of Control", f"${poc:,.2f}", "cena z najwyższym wolumenem")
-                kl += metric_card("Value Area Low", f"${va_low:,.2f}", "dolna granica 70% vol ← wejście", positive=True)
-                kl += metric_card("Value Area High", f"${va_high:,.2f}", "górna granica 70% vol")
-                kl += metric_card("Min Low okresu", f"${vp_period_low:,.2f}", "absolutne minimum")
-                kl += metric_card("Max High okresu", f"${vp_period_high:,.2f}", "absolutne maksimum")
-                kl += metric_card("Stref wsparcia", str(len(zones)), "wykrytych poziomów")
+                kl += metric_card("Point of Control", f"${poc:,.2f}", "price with highest volume")
+                kl += metric_card("Value Area Low", f"${va_low:,.2f}", "lower bound of 70% vol ← entry signal", positive=True)
+                kl += metric_card("Value Area High", f"${va_high:,.2f}", "upper bound of 70% vol")
+                kl += metric_card("Period Low", f"${vp_period_low:,.2f}", "absolute minimum")
+                kl += metric_card("Period High", f"${vp_period_high:,.2f}", "absolute maximum")
+                kl += metric_card("Support zones", str(len(zones)), "detected VP levels")
                 kl += '</div>'
                 st.markdown(kl, unsafe_allow_html=True)
 
-                # Wykres ceny ze strefami
                 fig_vp = go.Figure()
                 fig_vp.add_trace(go.Candlestick(
                     x=vp_df_raw.index, open=vp_df_raw["Open"], high=vp_df_raw["High"],
-                    low=vp_df_raw["Low"], close=vp_df_raw["Close"], name="Cena",
+                    low=vp_df_raw["Low"], close=vp_df_raw["Close"], name="Price",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
                 ))
                 zone_colors = ["rgba(56,189,248,0.15)","rgba(251,191,36,0.12)","rgba(52,211,153,0.12)",
@@ -691,30 +512,29 @@ with strategy_tab1:
                         y0=zone["zone_low"], y1=zone["zone_high"],
                         fillcolor=zone_colors[i % len(zone_colors)],
                         line=dict(color=border_colors[i % len(border_colors)], width=1, dash="dot"),
-                        annotation_text=f"  {zone['price']:.2f}$ ({zone['volume_pct']:.1f}%)",
+                        annotation_text=f"  {zone['price']:.2f} ({zone['volume_pct']:.1f}%)",
                         annotation_position="right",
                         annotation=dict(font=dict(color=border_colors[i % len(border_colors)], size=11)),
                     )
                 fig_vp.add_hline(y=poc, line_dash="dash", line_color="#fbbf24", line_width=2,
-                    annotation_text=f"POC {poc:.2f}$", annotation_position="left",
+                    annotation_text=f"POC {poc:.2f}", annotation_position="left",
                     annotation=dict(font=dict(color="#fbbf24", size=11)))
                 fig_vp.add_hline(y=va_low, line_dash="dash", line_color="#34d399", line_width=2,
-                    annotation_text=f"VA Low {va_low:.2f}$ ← wejście", annotation_position="left",
+                    annotation_text=f"VA Low {va_low:.2f} ← entry", annotation_position="left",
                     annotation=dict(font=dict(color="#34d399", size=11)))
                 fig_vp.add_hline(y=va_high, line_dash="dash", line_color="#38bdf8", line_width=1.5,
-                    annotation_text=f"VA High {va_high:.2f}$", annotation_position="left",
+                    annotation_text=f"VA High {va_high:.2f}", annotation_position="left",
                     annotation=dict(font=dict(color="#38bdf8", size=11)))
                 fig_vp.update_layout(
                     template="plotly_dark", height=520,
                     margin=dict(l=0,r=120,t=24,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name} — Volume Profile i strefy wsparcia", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=f"{commodity_name} — Volume Profile & support zones", font=dict(size=13, color="#94a3b8")),
                     xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
                 )
                 st.plotly_chart(fig_vp, use_container_width=True)
 
-                # VP histogram poziomy
                 bar_colors = []
                 zone_ranges = [(z["zone_low"], z["zone_high"]) for z in zones]
                 for price in vp_data["price_level"]:
@@ -737,34 +557,31 @@ with strategy_tab1:
                     template="plotly_dark", height=380,
                     margin=dict(l=0,r=0,t=8,b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    xaxis=dict(title="% wolumenu", gridcolor="#1e293b"),
-                    yaxis=dict(title="Cena ($)", gridcolor="#1e293b"),
+                    xaxis=dict(title="% volume", gridcolor="#1e293b"),
+                    yaxis=dict(title="Price ($)", gridcolor="#1e293b"),
                     showlegend=False,
                 )
                 st.plotly_chart(fig_hist, use_container_width=True)
 
-                # Tabela stref
                 zone_rows = ""
                 for z in zones:
                     if z["price"] <= va_low:
-                        sig = "<span style='color:#34d399;font-weight:700'>✓ Strefa wejścia</span>"
+                        sig = "<span style='color:#34d399;font-weight:700'>✓ Entry zone</span>"
                     elif z["price"] <= poc:
-                        sig = "<span style='color:#fbbf24'>~ Poniżej POC</span>"
+                        sig = "<span style='color:#fbbf24'>~ Below POC</span>"
                     else:
-                        sig = "<span style='color:#64748b'>Powyżej POC</span>"
+                        sig = "<span style='color:#64748b'>Above POC</span>"
                     zone_rows += f"<tr><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#e2e8f0;font-weight:700'>${z['price']:,.2f}</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#94a3b8'>${z['zone_low']:,.2f} – ${z['zone_high']:,.2f}</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#38bdf8;font-weight:600'>{z['volume_pct']:.1f}%</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b'>{sig}</td></tr>"
+                st.markdown(f"<table style='width:100%;border-collapse:collapse;font-size:0.82rem'><thead><tr><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Price</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Zone range</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>% Vol</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Signal</th></tr></thead><tbody>{zone_rows}</tbody></table>", unsafe_allow_html=True)
+                st.markdown(f"<div style='background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:16px;font-size:0.85rem;color:#93c5fd;line-height:1.7'><b style='color:#38bdf8'>💡 Tip:</b> Set <b>Entry threshold</b> in Strategy 1 to <b style='color:#34d399'>${va_low:,.2f}</b> (Value Area Low) — historically cheap zone for {commodity_name}.</div>", unsafe_allow_html=True)
 
-                st.markdown(f"<table style='width:100%;border-collapse:collapse;font-size:0.82rem'><thead><tr><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Cena</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Zakres</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>% Vol</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Sygnał</th></tr></thead><tbody>{zone_rows}</tbody></table>", unsafe_allow_html=True)
-
-                st.markdown(f"<div style='background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:16px;font-size:0.85rem;color:#93c5fd;line-height:1.7'><b style='color:#38bdf8'>💡 Wskazówka:</b> Ustaw <b>Cena wejścia</b> w Strategii 1 na <b style='color:#34d399'>${va_low:,.2f}$</b> (Value Area Low) — to historycznie tania strefa dla {commodity_name}.</div>", unsafe_allow_html=True)
-
-            # ── Optymalizacja ──────────────────────────────────
+            # ── Optimization ────────────────────────────────────
             if optimize_enabled:
                 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
                 st.markdown(f"""
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-                    <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">🔬 Optymalizacja kombinacji</div>
-                    <div style="font-size:0.75rem;color:#64748b">{commodity_name} · próg {entry_threshold}$</div>
+                    <div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">🔬 Optimization results</div>
+                    <div style="font-size:0.75rem;color:#64748b">{commodity_name} · threshold {entry_threshold}$</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -773,10 +590,10 @@ with strategy_tab1:
                 total_runs = len(steps) * len(tps)
 
                 if total_runs > 300:
-                    st.warning(f"Za dużo kombinacji ({total_runs}). Zawęź zakres lub zwiększ krok.")
+                    st.warning(f"Too many combinations ({total_runs}). Narrow the range or increase the step.")
                 else:
                     opt_results = []
-                    prog = st.progress(0, text="Obliczanie kombinacji...")
+                    prog = st.progress(0, text="Computing combinations...")
                     for idx_s, s in enumerate(steps):
                         for idx_t, tp_val in enumerate(tps):
                             r = run_backtest(
@@ -787,17 +604,17 @@ with strategy_tab1:
                                 point_value=st.session_state.get("bt_point_value", 1.0),
                             )
                             opt_results.append({
-                                "Krok ($)":        round(float(s), 2),
+                                "Step ($)":        round(float(s), 2),
                                 "TP ($)":          round(float(tp_val), 2),
                                 "PnL ($)":         round(r.total_pnl, 2),
-                                "Transakcji":      r.total_trades,
+                                "Trades":          r.total_trades,
                                 "Win %":           round(r.win_rate, 1),
-                                "Max kontr.":      r.max_concurrent,
-                                "Max kapital ($)": int(r.max_capital_needed),
-                                "Sr. dni":         int(r.avg_days_open),
+                                "Max contr.":      r.max_concurrent,
+                                "Max capital ($)": int(r.max_capital_needed),
+                                "Avg days":        int(r.avg_days_open),
                             })
                             done = idx_s * len(tps) + idx_t + 1
-                            prog.progress(done / total_runs, text=f"{done}/{total_runs} kombinacji...")
+                            prog.progress(done / total_runs, text=f"{done}/{total_runs} combinations...")
                     prog.empty()
 
                     opt_df = pd.DataFrame(opt_results)
@@ -814,22 +631,21 @@ with strategy_tab1:
                                 st.markdown(f"""
                                 <div class="combo-card {cls}">
                                     <div class="combo-medal">{medal}</div>
-                                    <div class="combo-params">Krok {row['Krok ($)']}$ / TP {row['TP ($)']}$</div>
+                                    <div class="combo-params">Step {row['Step ($)']}$ / TP {row['TP ($)']}$</div>
                                     <div class="combo-pnl {pnl_cls}">${row['PnL ($)']:,.2f}</div>
                                     <div class="combo-stats">
-                                        {row['Transakcji']} transakcji · Win {row['Win %']}%<br>
-                                        Max {row['Max kontr.']} kontr. · ${row['Max kapital ($)']:,}
+                                        {row['Trades']} trades · Win {row['Win %']}%<br>
+                                        Max {row['Max contr.']} contr. · ${row['Max capital ($)']:,}
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
 
                     st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
-
-                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px'>Heatmapa PnL — Krok vs Take Profit</div>", unsafe_allow_html=True)
-                    pivot = opt_df.pivot(index="Krok ($)", columns="TP ($)", values="PnL ($)")
+                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin-bottom:8px'>PnL Heatmap — Step vs Take Profit</div>", unsafe_allow_html=True)
+                    pivot = opt_df.pivot(index="Step ($)", columns="TP ($)", values="PnL ($)")
                     fig_heat = px.imshow(
                         pivot,
-                        labels=dict(x="Take Profit ($)", y="Krok ($)", color="PnL ($)"),
+                        labels=dict(x="Take Profit ($)", y="Step ($)", color="PnL ($)"),
                         color_continuous_scale="RdYlGn",
                         aspect="auto",
                         text_auto=True,
@@ -843,219 +659,7 @@ with strategy_tab1:
                     fig_heat.update_traces(textfont=dict(size=11))
                     st.plotly_chart(fig_heat, use_container_width=True)
 
-                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Top 20 kombinacji</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Top 20 combinations</div>", unsafe_allow_html=True)
                     render_opt_table(opt_df_sorted, top_n=20)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-
-# (stara zakładka VP usunieta - VP przeniesione do chart_tab4)
-if False:
-    st.markdown('<div class="strategy-tag">Volume Profile · Point of Control · Value Area · Strefy wsparcia</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin:12px 0 20px 0;font-size:0.85rem;color:#94a3b8;line-height:1.7">
-        <b style="color:#e2e8f0">Jak to działa:</b> Volume Profile pokazuje na jakich poziomach cenowych skupił się największy wolumen w historii.
-        Strefy z wysokim wolumenem to naturalne wsparcia i opory — cena ma tendencję do powracania do tych poziomów.
-        <br><b style="color:#38bdf8">POC</b> (Point of Control) = cena z absolutnie najwyższym wolumenem.
-        <br><b style="color:#34d399">Value Area Low</b> = dolna granica strefy obejmującej 70% wolumenu wokół POC — <b style="color:#fbbf24">to jest Twój sygnał do wejścia w strategię.</b>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Wybor instrumentu i okresu VP ─────────────────────────
-    vp_col1, vp_col2 = st.columns([2, 3])
-
-    with vp_col1:
-        vp_symbol_name = st.selectbox("Instrument", options=list(COMMODITY_SYMBOLS.keys()), index=0, key="vp_symbol")
-        vp_symbol = COMMODITY_SYMBOLS[vp_symbol_name]
-
-    with vp_col2:
-        vp_dc1, vp_dc2 = st.columns(2)
-        with vp_dc1:
-            vp_start = st.date_input("Od", value=date.today() - timedelta(days=365*10), key="vp_start", min_value=date(1950,1,1), max_value=date.today())
-        with vp_dc2:
-            vp_end = st.date_input("Do", value=date.today(), key="vp_end", min_value=date(1950,1,2), max_value=date.today())
-
-    vp_run = st.button("🔍 Analizuj strefy wsparcia", type="primary", use_container_width=False, key="vp_run")
-
-    if vp_run:
-        with st.spinner(f"Pobieranie danych {vp_symbol_name}..."):
-            try:
-                vp_df_raw = fetch_data(vp_symbol, start=vp_start, end=vp_end)
-            except Exception as e:
-                st.error(f"Błąd: {e}")
-                vp_df_raw = None
-
-        if vp_df_raw is None or vp_df_raw.empty:
-            st.error("Brak danych. Zmień zakres dat lub instrument.")
-        else:
-            with st.spinner("Obliczanie Volume Profile..."):
-                zones, poc, va_low, va_high = find_support_zones(vp_df_raw, bins=300, top_n=6, min_gap_pct=0.025)
-                vp_data, _, _, _ = compute_volume_profile(vp_df_raw, bins=300)
-
-            period_low  = float(vp_df_raw["Low"].min())
-            period_high = float(vp_df_raw["High"].max())
-
-            st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:16px'>✓ {len(vp_df_raw)} sesji · {vp_symbol_name} · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
-
-            # ── Kluczowe poziomy ──────────────────────────────
-            kl_cards = '<div class="metric-grid">'
-            kl_cards += metric_card("Point of Control", f"${poc:,.2f}", "cena z najwyższym wolumenem")
-            kl_cards += metric_card("Value Area Low", f"${va_low:,.2f}", "dolna granica 70% wolumenu ← wejście", positive=True)
-            kl_cards += metric_card("Value Area High", f"${va_high:,.2f}", "górna granica 70% wolumenu")
-            kl_cards += metric_card("Min Low okresu", f"${period_low:,.2f}", "absolutne minimum w okresie")
-            kl_cards += metric_card("Max High okresu", f"${period_high:,.2f}", "absolutne maksimum w okresie")
-            kl_cards += metric_card("Stref wsparcia", str(len(zones)), "wykrytych poziomów VP")
-            kl_cards += '</div>'
-            st.markdown(kl_cards, unsafe_allow_html=True)
-
-            # ── Wykres ceny z Volume Profile i strefami ───────
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-            fig_vp = go.Figure()
-
-            # Wykres swiecowy ceny
-            fig_vp.add_trace(go.Candlestick(
-                x=vp_df_raw.index,
-                open=vp_df_raw["Open"],
-                high=vp_df_raw["High"],
-                low=vp_df_raw["Low"],
-                close=vp_df_raw["Close"],
-                name="Cena",
-                increasing_line_color="#34d399",
-                decreasing_line_color="#f87171",
-                xaxis="x", yaxis="y",
-            ))
-
-            # Strefy wsparcia jako prostokaty
-            colors_zone = ["rgba(56,189,248,0.15)", "rgba(251,191,36,0.12)",
-                           "rgba(52,211,153,0.12)", "rgba(248,113,113,0.12)",
-                           "rgba(167,139,250,0.12)", "rgba(249,115,22,0.12)"]
-            border_colors = ["#38bdf8", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#f97316"]
-
-            for i, zone in enumerate(zones):
-                col_bg  = colors_zone[i % len(colors_zone)]
-                col_brd = border_colors[i % len(border_colors)]
-                fig_vp.add_hrect(
-                    y0=zone["zone_low"], y1=zone["zone_high"],
-                    fillcolor=col_bg,
-                    line=dict(color=col_brd, width=1, dash="dot"),
-                    annotation_text=f"  {zone['price']:.2f}$ ({zone['volume_pct']:.1f}%vol)",
-                    annotation_position="right",
-                    annotation=dict(font=dict(color=col_brd, size=11)),
-                )
-
-            # POC linia
-            fig_vp.add_hline(
-                y=poc, line_dash="dash", line_color="#fbbf24", line_width=2,
-                annotation_text=f"POC {poc:.2f}$",
-                annotation_position="left",
-                annotation=dict(font=dict(color="#fbbf24", size=11)),
-            )
-
-            # Value Area Low linia
-            fig_vp.add_hline(
-                y=va_low, line_dash="dash", line_color="#34d399", line_width=2,
-                annotation_text=f"VA Low {va_low:.2f}$ ← wejście",
-                annotation_position="left",
-                annotation=dict(font=dict(color="#34d399", size=11)),
-            )
-
-            # Value Area High linia
-            fig_vp.add_hline(
-                y=va_high, line_dash="dash", line_color="#38bdf8", line_width=1.5,
-                annotation_text=f"VA High {va_high:.2f}$",
-                annotation_position="left",
-                annotation=dict(font=dict(color="#38bdf8", size=11)),
-            )
-
-            fig_vp.update_layout(
-                template="plotly_dark",
-                height=580,
-                margin=dict(l=0, r=120, t=24, b=0),
-                paper_bgcolor="#0f172a",
-                plot_bgcolor="#0f172a",
-                xaxis_rangeslider_visible=False,
-                title=dict(text=f"{vp_symbol_name} — cena z Volume Profile i strefami wsparcia", font=dict(size=13, color="#94a3b8")),
-                xaxis=dict(gridcolor="#1e293b"),
-                yaxis=dict(gridcolor="#1e293b"),
-            )
-            st.plotly_chart(fig_vp, use_container_width=True)
-
-            # ── Volume Profile histogram ───────────────────────
-            st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:4px 0 8px 0'>Volume Profile — rozkład wolumenu po cenie</div>", unsafe_allow_html=True)
-
-            fig_hist = go.Figure()
-            # Koloruj slupki - jasniejsze = strefa wsparcia
-            bar_colors = []
-            zone_ranges = [(z["zone_low"], z["zone_high"]) for z in zones]
-            for price in vp_data["price_level"]:
-                in_zone = any(lo <= price <= hi for lo, hi in zone_ranges)
-                if abs(price - poc) < (period_high - period_low) / 300 * 4:
-                    bar_colors.append("#fbbf24")
-                elif in_zone:
-                    bar_colors.append("#38bdf8")
-                else:
-                    bar_colors.append("#334155")
-
-            fig_hist.add_trace(go.Bar(
-                x=vp_data["pct"],
-                y=vp_data["price_level"],
-                orientation="h",
-                name="Volume %",
-                marker_color=bar_colors,
-                marker_line_width=0,
-            ))
-            fig_hist.add_hline(y=poc,    line_dash="dash", line_color="#fbbf24", line_width=1.5)
-            fig_hist.add_hline(y=va_low, line_dash="dash", line_color="#34d399", line_width=1.5)
-            fig_hist.add_hline(y=va_high,line_dash="dash", line_color="#38bdf8", line_width=1)
-
-            fig_hist.update_layout(
-                template="plotly_dark",
-                height=420,
-                margin=dict(l=0, r=0, t=8, b=0),
-                paper_bgcolor="#0f172a",
-                plot_bgcolor="#0f172a",
-                xaxis=dict(title="% wolumenu", gridcolor="#1e293b"),
-                yaxis=dict(title="Cena ($)", gridcolor="#1e293b"),
-                showlegend=False,
-            )
-            st.plotly_chart(fig_hist, use_container_width=True)
-
-            # ── Tabela stref ───────────────────────────────────
-            if zones:
-                st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Wykryte strefy wsparcia — rekomendowane poziomy wejścia</div>", unsafe_allow_html=True)
-                zone_rows = ""
-                for i, z in enumerate(zones):
-                    signal = ""
-                    if z["price"] <= va_low:
-                        signal = "<span style='color:#34d399;font-weight:700'>✓ Strefa wejścia</span>"
-                    elif z["price"] <= poc:
-                        signal = "<span style='color:#fbbf24'>~ Poniżej POC</span>"
-                    else:
-                        signal = "<span style='color:#64748b'>Powyżej POC</span>"
-                    zone_rows += f"""
-                    <tr>
-                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#e2e8f0;font-weight:700'>${z['price']:,.2f}</td>
-                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#94a3b8'>${z['zone_low']:,.2f} – ${z['zone_high']:,.2f}</td>
-                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b;color:#38bdf8;font-weight:600'>{z['volume_pct']:.1f}%</td>
-                        <td style='padding:9px 14px;border-bottom:1px solid #1e293b'>{signal}</td>
-                    </tr>"""
-
-                st.markdown(f"""
-                <table style='width:100%;border-collapse:collapse;font-size:0.85rem'>
-                    <thead><tr>
-                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Cena strefy</th>
-                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Zakres strefy</th>
-                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>% Wolumenu</th>
-                        <th style='padding:10px 14px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Sygnał</th>
-                    </tr></thead>
-                    <tbody>{zone_rows}</tbody>
-                </table>
-                """, unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <div style="background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:20px;font-size:0.85rem;color:#93c5fd;line-height:1.7">
-                    <b style="color:#38bdf8">💡 Jak używać tych danych ze strategią Pyramid Long:</b><br>
-                    Ustaw <b>Cena wejścia</b> w Strategii 1 na poziomie <b style="color:#34d399">Value Area Low = ${va_low:,.2f}$</b> lub na cenie najbliższej strefy wsparcia.
-                    Gdy cena zbliży się do tego poziomu — to sygnał że jesteś w historycznie taniej strefie i czas aktywować strategię pyramidingu.
-                </div>
-                """, unsafe_allow_html=True)
