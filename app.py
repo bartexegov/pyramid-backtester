@@ -550,9 +550,9 @@ with strategy_tab1:
 
             with chart_tab3:
                 import collections
-                from plotly.subplots import make_subplots
 
-                # Grupuj wejscia i TP per bar
+                # Grupuj wejscia i TP per bar — wszystkie na tym samym barze
+                # pokazane jako jeden marker z liczba kontraktow w tooltipie
                 entry_groups = collections.defaultdict(list)
                 for t in result.trades:
                     entry_groups[t.entry_date].append(t.entry_price)
@@ -564,74 +564,73 @@ with strategy_tab1:
                         tp_groups[t.exit_date].append(t.exit_price)
                         tp_pnl_groups[t.exit_date] += t.pnl
 
-                # Subplot: cena (70%) + kupno/TP (30%)
-                fig_p = make_subplots(
-                    rows=2, cols=1,
-                    shared_xaxes=True,
-                    row_heights=[0.70, 0.30],
-                    vertical_spacing=0.03,
-                )
+                fig_p = go.Figure()
 
-                # -- Wiersz 1: Candlestick ceny --
                 fig_p.add_trace(go.Candlestick(
                     x=df.index, open=df["Open"], high=df["High"],
                     low=df["Low"], close=df["Close"], name="Cena",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
-                ), row=1, col=1)
+                ))
 
-                # Linia progu
                 fig_p.add_hline(y=entry_threshold_disp, line_dash="dash",
                     line_color="#f87171", line_width=1.5,
                     annotation_text=f"Próg {entry_threshold_disp}$",
-                    annotation_position="right", row=1, col=1)
+                    annotation_position="right")
 
-                # -- Wiersz 2: Słupki kupno (zielone, góra) i TP (żółte, dół) --
-                # Kupno: słupki w górę (pozytywne) = liczba kupionych kontraktów
+                # Trójkąty kupna — mały stały rozmiar, pozycja pod Low baru
                 if entry_groups:
-                    ex = list(entry_groups.keys())
+                    ex   = list(entry_groups.keys())
                     ecnt = [len(v) for v in entry_groups.values()]
                     eavg = [sum(v)/len(v) for v in entry_groups.values()]
-                    etxt = [f"Kupno x{c}<br>@ {p:.2f}$" for c, p in zip(ecnt, eavg)]
-                    fig_p.add_trace(go.Bar(
-                        x=ex, y=ecnt, name="Kupno (kontrakty)",
-                        marker_color="#34d399", marker_line_width=0,
-                        text=[str(c) if c > 1 else "" for c in ecnt],
-                        textposition="inside", textfont=dict(color="#0f172a", size=10),
+                    # Pozycja Y: lekko pod Low danego baru
+                    ey = []
+                    for d in ex:
+                        if d in df.index:
+                            bar_low = float(df.loc[d, "Low"])
+                            price_range = float(df["High"].max() - df["Low"].min())
+                            offset = price_range * 0.008
+                            ey.append(bar_low - offset)
+                        else:
+                            ey.append(eavg[ex.index(d)])
+                    etxt = [f"Kupno x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
+                    fig_p.add_trace(go.Scatter(
+                        x=ex, y=ey, mode="markers", name="Kupno",
+                        marker=dict(symbol="triangle-up", size=8, color="#34d399", line=dict(width=0)),
                         hovertext=etxt, hoverinfo="text",
-                    ), row=2, col=1)
+                    ))
 
-                # TP: słupki w dół (negatywne) = liczba zamkniętych kontraktów
+                # Trójkąty TP — mały stały rozmiar, pozycja nad High baru
                 if tp_groups:
-                    tx = list(tp_groups.keys())
+                    tx   = list(tp_groups.keys())
                     tcnt = [len(v) for v in tp_groups.values()]
                     tavg = [sum(v)/len(v) for v in tp_groups.values()]
                     tpnl = [tp_pnl_groups[d] for d in tx]
-                    ttxt = [f"TP x{c}<br>@ {p:.2f}$<br>PnL: +{pnl:.2f}$" for c, p, pnl in zip(tcnt, tavg, tpnl)]
-                    fig_p.add_trace(go.Bar(
-                        x=tx, y=[-c for c in tcnt], name="TP (kontrakty)",
-                        marker_color="#fbbf24", marker_line_width=0,
-                        text=[str(c) if c > 1 else "" for c in tcnt],
-                        textposition="inside", textfont=dict(color="#0f172a", size=10),
+                    # Pozycja Y: lekko nad High danego baru
+                    ty = []
+                    for d in tx:
+                        if d in df.index:
+                            bar_high = float(df.loc[d, "High"])
+                            price_range = float(df["High"].max() - df["Low"].min())
+                            offset = price_range * 0.008
+                            ty.append(bar_high + offset)
+                        else:
+                            ty.append(tavg[tx.index(d)])
+                    ttxt = [f"TP x{c} @ {p:.2f} | PnL +{pnl:.2f}" for c, p, pnl in zip(tcnt, tavg, tpnl)]
+                    fig_p.add_trace(go.Scatter(
+                        x=tx, y=ty, mode="markers", name="TP",
+                        marker=dict(symbol="triangle-down", size=8, color="#fbbf24", line=dict(width=0)),
                         hovertext=ttxt, hoverinfo="text",
-                    ), row=2, col=1)
+                    ))
 
                 fig_p.update_layout(
-                    template="plotly_dark", height=580,
+                    template="plotly_dark", height=500,
                     margin=dict(l=0, r=0, t=24, b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name} — cena + aktywność (kupno↑ zielone / TP↓ żółte)", font=dict(size=13, color="#94a3b8")),
-                    showlegend=True,
+                    title=dict(text=f"{commodity_name_disp} — cena z sygnałami (hover = szczegóły)", font=dict(size=13, color="#94a3b8")),
+                    xaxis=dict(gridcolor="#1e293b"),
+                    yaxis=dict(gridcolor="#1e293b"),
                     legend=dict(orientation="h", y=1.02, x=0, font=dict(color="#94a3b8")),
-                    barmode="overlay",
-                )
-                fig_p.update_xaxes(gridcolor="#1e293b")
-                fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
-                fig_p.update_yaxes(
-                    gridcolor="#1e293b", row=2, col=1,
-                    title_text="Kontrakty",
-                    title_font=dict(color="#64748b", size=11),
-                    zeroline=True, zerolinecolor="#334155", zerolinewidth=1,
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
