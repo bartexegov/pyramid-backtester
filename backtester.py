@@ -264,6 +264,8 @@ def run_backtest(
     daily_open = pd.Series(0, index=df.index, dtype=int)
     equity_curve = pd.Series(0.0, index=df.index)
 
+    ec_per_entry = commission_per_side * qty_per_entry  # entry commission, constant
+
     for i in range(len(df)):
         date      = df.index[i]
         bar_open  = float(df["Open"].iloc[i])
@@ -271,139 +273,103 @@ def run_backtest(
         bar_low   = float(df["Low"].iloc[i])
         bar_close = float(df["Close"].iloc[i])
 
-        # ══════════════════════════════════════════════════════════════════════
-        # STEP 1 — Close trades that hit TP (gap or intrabar)
-        #
-        # LONG:  TP hit when price rises  → bar_open or bar_high >= tp_price
-        # SHORT: TP hit when price falls  → bar_open or bar_low  <= tp_price
-        # ══════════════════════════════════════════════════════════════════════
-
-        def _close_trade(trade, fill_price):
-            """Close a trade at fill_price and update P&L."""
-            trade.exit_date       = date
-            trade.exit_price      = fill_price
-            trade.exit_commission = commission_per_side * qty_per_entry
-            if is_long:
-                gross = (fill_price - trade.entry_price) * qty_per_entry * point_value
-            else:
-                gross = (trade.entry_price - fill_price) * qty_per_entry * point_value
-            trade.pnl       = gross - trade.entry_commission - trade.exit_commission
-            trade.days_open = (date - trade.entry_date).days
-            trade.closed    = True
-            nonlocal cumulative_pnl, total_pnl, total_comm
-            cumulative_pnl += trade.pnl
-            total_pnl      += trade.pnl
-            total_comm     += trade.entry_commission + trade.exit_commission
-
-        # ── 1a: Gap TP ────────────────────────────────────────────────────────
+        # ── STEP 1a: Gap TP (open gaps through TP level) ─────────────────────
         still_open: List[Trade] = []
         for trade in open_trades:
-            if is_long and bar_open >= trade.tp_price:
-                _close_trade(trade, bar_open)
-            elif not is_long and bar_open <= trade.tp_price:
-                _close_trade(trade, bar_open)
+            hit = (is_long and bar_open >= trade.tp_price) or (not is_long and bar_open <= trade.tp_price)
+            if hit:
+                fill_price            = bar_open
+                trade.exit_date       = date
+                trade.exit_price      = fill_price
+                trade.exit_commission = ec_per_entry
+                gross = (fill_price - trade.entry_price) * qty_per_entry * point_value if is_long else (trade.entry_price - fill_price) * qty_per_entry * point_value
+                trade.pnl       = gross - trade.entry_commission - trade.exit_commission
+                trade.days_open = (date - trade.entry_date).days
+                trade.closed    = True
+                cumulative_pnl += trade.pnl
+                total_pnl      += trade.pnl
+                total_comm     += trade.entry_commission + trade.exit_commission
             else:
                 still_open.append(trade)
         open_trades = still_open
 
-        # ── 1b: Intrabar TP ───────────────────────────────────────────────────
+        # ── STEP 1b: Intrabar TP ─────────────────────────────────────────────
         still_open2: List[Trade] = []
         for trade in open_trades:
-            if is_long and bar_high >= trade.tp_price:
-                _close_trade(trade, trade.tp_price)
-            elif not is_long and bar_low <= trade.tp_price:
-                _close_trade(trade, trade.tp_price)
+            hit = (is_long and bar_high >= trade.tp_price) or (not is_long and bar_low <= trade.tp_price)
+            if hit:
+                fill_price            = trade.tp_price
+                trade.exit_date       = date
+                trade.exit_price      = fill_price
+                trade.exit_commission = ec_per_entry
+                gross = (fill_price - trade.entry_price) * qty_per_entry * point_value if is_long else (trade.entry_price - fill_price) * qty_per_entry * point_value
+                trade.pnl       = gross - trade.entry_commission - trade.exit_commission
+                trade.days_open = (date - trade.entry_date).days
+                trade.closed    = True
+                cumulative_pnl += trade.pnl
+                total_pnl      += trade.pnl
+                total_comm     += trade.entry_commission + trade.exit_commission
             else:
                 still_open2.append(trade)
         open_trades = still_open2
 
-        # ── Step 2: Update last_entry_price after any TP closures ─────────────
+        # ── STEP 2: Update last_entry_price ──────────────────────────────────
         if len(open_trades) == 0:
             last_entry_price = None
         else:
-            # Long: track lowest entry (pyramid goes down)
-            # Short: track highest entry (pyramid goes up)
-            last_entry_price = (
-                min(t.entry_price for t in open_trades) if is_long
-                else max(t.entry_price for t in open_trades)
-            )
+            last_entry_price = min(t.entry_price for t in open_trades) if is_long else max(t.entry_price for t in open_trades)
 
-        # ══════════════════════════════════════════════════════════════════════
-        # STEP 3 — New entries
-        #
-        # LONG:  enter when bar_low  < threshold; add when low drops further
-        # SHORT: enter when bar_high > threshold; add when high rises further
-        # ══════════════════════════════════════════════════════════════════════
-
-        def _add_trade(fill_px, tp_px, level):
-            """Create a new trade and deduct entry commission immediately."""
-            ec = commission_per_side * qty_per_entry
-            t  = Trade(
-                level            = level,
-                entry_date       = date,
-                entry_price      = fill_px,
-                tp_price         = tp_px,
-                entry_commission = ec,
-            )
-            nonlocal cumulative_pnl, total_comm
-            cumulative_pnl -= ec
-            total_comm     += ec
-            return t
-
+        # ── STEP 3: New entries ───────────────────────────────────────────────
         if is_long:
-            # ── LONG entries ─────────────────────────────────────────────────
             if bar_low < entry_threshold:
                 if len(open_trades) == 0:
-                    # First entry
                     fill_px = bar_open if bar_open < entry_threshold else bar_close
-                    trade = _add_trade(fill_px, fill_px + take_profit, 1)
-                    open_trades.append(trade); trades.append(trade)
+                    t = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=fill_px + take_profit, entry_commission=ec_per_entry)
+                    cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                    open_trades.append(t); trades.append(t)
                     last_entry_price = fill_px
 
                 if len(open_trades) > 0 and last_entry_price is not None:
-                    # Gap down through next trigger
                     if bar_open < last_entry_price - pyramid_step:
                         fill_px      = bar_open
                         next_trigger = last_entry_price - pyramid_step
                         while next_trigger >= bar_open:
-                            trade = _add_trade(fill_px, fill_px + take_profit, len(open_trades) + 1)
-                            open_trades.append(trade); trades.append(trade)
+                            t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=fill_px, tp_price=fill_px + take_profit, entry_commission=ec_per_entry)
+                            cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                            open_trades.append(t); trades.append(t)
                             last_entry_price = next_trigger
                             next_trigger     = last_entry_price - pyramid_step
-                    # Normal intrabar drop
                     next_trigger = last_entry_price - pyramid_step
                     while bar_low <= next_trigger:
-                        trade = _add_trade(next_trigger, next_trigger + take_profit, len(open_trades) + 1)
-                        open_trades.append(trade); trades.append(trade)
+                        t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=next_trigger, tp_price=next_trigger + take_profit, entry_commission=ec_per_entry)
+                        cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                        open_trades.append(t); trades.append(t)
                         last_entry_price = next_trigger
                         next_trigger     = last_entry_price - pyramid_step
-
         else:
-            # ── SHORT entries ─────────────────────────────────────────────────
-            # Mirror: sell short when High > threshold, add when price rises further
             if bar_high > entry_threshold:
                 if len(open_trades) == 0:
-                    # First short entry
                     fill_px = bar_open if bar_open > entry_threshold else bar_close
-                    trade = _add_trade(fill_px, fill_px - take_profit, 1)
-                    open_trades.append(trade); trades.append(trade)
+                    t = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=fill_px - take_profit, entry_commission=ec_per_entry)
+                    cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                    open_trades.append(t); trades.append(t)
                     last_entry_price = fill_px
 
                 if len(open_trades) > 0 and last_entry_price is not None:
-                    # Gap up through next trigger
                     if bar_open > last_entry_price + pyramid_step:
                         fill_px      = bar_open
                         next_trigger = last_entry_price + pyramid_step
                         while next_trigger <= bar_open:
-                            trade = _add_trade(fill_px, fill_px - take_profit, len(open_trades) + 1)
-                            open_trades.append(trade); trades.append(trade)
+                            t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=fill_px, tp_price=fill_px - take_profit, entry_commission=ec_per_entry)
+                            cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                            open_trades.append(t); trades.append(t)
                             last_entry_price = next_trigger
                             next_trigger     = last_entry_price + pyramid_step
-                    # Normal intrabar rise
                     next_trigger = last_entry_price + pyramid_step
                     while bar_high >= next_trigger:
-                        trade = _add_trade(next_trigger, next_trigger - take_profit, len(open_trades) + 1)
-                        open_trades.append(trade); trades.append(trade)
+                        t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=next_trigger, tp_price=next_trigger - take_profit, entry_commission=ec_per_entry)
+                        cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
+                        open_trades.append(t); trades.append(t)
                         last_entry_price = next_trigger
                         next_trigger     = last_entry_price + pyramid_step
 
