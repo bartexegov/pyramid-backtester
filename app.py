@@ -229,9 +229,21 @@ with st.sidebar:
 
     # ── Strategy parameters ─────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Strategy parameters</div>', unsafe_allow_html=True)
-    entry_threshold = st.number_input("Entry threshold ($)", min_value=0.01, max_value=100000.0, value=470.0, step=1.0, format="%.2f", help="Buy when Low < this price")
-    pyramid_step = st.number_input("Pyramid step ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Add one contract every X$ drop from last entry")
-    take_profit = st.number_input("Take Profit ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help="Close each contract X$ above its entry price")
+    direction = st.radio("Direction", ["Long", "Short"], horizontal=True,
+        help="Long: buy when price drops, TP when rises. Short: sell when price rises, TP when falls.")
+    if direction == "Long":
+        thresh_help  = "Buy first contract when Low < this price"
+        step_help    = "Add 1 contract every X$ DROP below last entry"
+        tp_help      = "Close each contract X$ ABOVE its entry price"
+        thresh_label = "Entry threshold ($) — buy below"
+    else:
+        thresh_help  = "Sell short when High > this price"
+        step_help    = "Add 1 contract every X$ RISE above last entry"
+        tp_help      = "Close each contract X$ BELOW its entry price"
+        thresh_label = "Entry threshold ($) — sell above"
+    entry_threshold = st.number_input(thresh_label, min_value=0.01, max_value=100000.0, value=470.0, step=1.0, format="%.2f", help=thresh_help)
+    pyramid_step = st.number_input("Pyramid step ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help=step_help)
+    take_profit = st.number_input("Take Profit ($)", min_value=0.01, max_value=10000.0, value=5.0, step=0.25, format="%.2f", help=tp_help)
     margin_per_contract = st.number_input("Margin / contract ($)", min_value=100.0, max_value=1000000.0, value=1500.0, step=100.0, format="%.0f", help="Broker margin requirement per contract")
     commission_per_side = st.number_input("Commission / contract ($)", min_value=0.0, max_value=1000.0, value=2.50, step=0.50, format="%.2f", help="Broker commission per contract per side (entry + exit = 2×)")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -318,6 +330,7 @@ with strategy_tab1:
                     qty_per_entry=1,
                     point_value=point_value,
                     commission_per_side=commission_per_side,
+                    direction=direction.lower(),
                 )
             st.session_state["bt_df"]              = df_new
             st.session_state["bt_result"]          = result_new
@@ -328,6 +341,7 @@ with strategy_tab1:
             st.session_state["bt_threshold"]       = entry_threshold
             st.session_state["bt_point_value"]     = point_value
             st.session_state["bt_commission"]      = commission_per_side
+            st.session_state["bt_direction"]       = direction
             st.session_state["bt_tf_label"]        = tf_label
             st.session_state["bt_tf_interval"]     = tf_interval
 
@@ -348,14 +362,18 @@ with strategy_tab1:
         pv                       = st.session_state.get("bt_point_value", 1.0)
         tf_label_disp            = st.session_state.get("bt_tf_label", "Daily (1d)")
         tf_interval_disp         = st.session_state.get("bt_tf_interval", "1d")
+        direction_disp           = st.session_state.get("bt_direction", "Long")
+        is_long_disp             = direction_disp == "Long"
 
         pnl_currency = "USD" if pv > 1.0 else "pts"
         pv_info = f"point value: {pv:.0f} $/pt" if pv > 1.0 else "continuous contract (PnL in price points)"
         comm = st.session_state.get("bt_commission", 0.0)
         comm_info = f"commission: ${comm:.2f}/side (${comm*2:.2f} round-trip per contract)" if comm > 0 else "no commission"
+        dir_badge_color = "#34d399" if is_long_disp else "#f87171"
+        dir_badge = f"<span style='background:{dir_badge_color};color:#0f172a;font-weight:700;padding:2px 8px;border-radius:4px;font-size:0.75rem'>{direction_disp}</span>"
 
         bar_label = {"1h": "bars (1h)", "1d": "sessions (daily)", "1wk": "weeks"}.get(tf_interval_disp, "bars")
-        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {len(df)} {bar_label} · {tf_label_disp} · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {dir_badge} {len(df)} {bar_label} · {tf_label_disp} · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} · {comm_info} — PnL in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
 
         # ── Metrics ────────────────────────────────────────────
@@ -452,22 +470,30 @@ with strategy_tab1:
                     annotation_text=f"Threshold {entry_threshold_disp}$",
                     annotation_position="right")
 
+                price_range = float(df["High"].max() - df["Low"].min())
+                offset = price_range * 0.008
+
                 if entry_groups:
                     ex   = list(entry_groups.keys())
                     ecnt = [len(v) for v in entry_groups.values()]
                     eavg = [sum(v)/len(v) for v in entry_groups.values()]
                     ey = []
-                    price_range = float(df["High"].max() - df["Low"].min())
-                    offset = price_range * 0.008
                     for d in ex:
                         if d in df.index:
-                            ey.append(float(df.loc[d, "Low"]) - offset)
+                            # Long: marker below low; Short: marker above high
+                            if is_long_disp:
+                                ey.append(float(df.loc[d, "Low"]) - offset)
+                            else:
+                                ey.append(float(df.loc[d, "High"]) + offset)
                         else:
                             ey.append(eavg[ex.index(d)])
-                    etxt = [f"Buy x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
+                    entry_label = "Buy" if is_long_disp else "Sell Short"
+                    entry_sym   = "triangle-up" if is_long_disp else "triangle-down"
+                    entry_col   = "#34d399" if is_long_disp else "#f87171"
+                    etxt = [f"{entry_label} x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
                     fig_p.add_trace(go.Scatter(
-                        x=ex, y=ey, mode="markers", name="Buy",
-                        marker=dict(symbol="triangle-up", size=8, color="#34d399", line=dict(width=0)),
+                        x=ex, y=ey, mode="markers", name=entry_label,
+                        marker=dict(symbol=entry_sym, size=8, color=entry_col, line=dict(width=0)),
                         hovertext=etxt, hoverinfo="text",
                     ))
 
@@ -477,17 +503,20 @@ with strategy_tab1:
                     tavg = [sum(v)/len(v) for v in tp_groups.values()]
                     tpnl = [tp_pnl_groups[d] for d in tx]
                     ty = []
-                    price_range = float(df["High"].max() - df["Low"].min())
-                    offset = price_range * 0.008
                     for d in tx:
                         if d in df.index:
-                            ty.append(float(df.loc[d, "High"]) + offset)
+                            # Long TP above high; Short TP below low
+                            if is_long_disp:
+                                ty.append(float(df.loc[d, "High"]) + offset)
+                            else:
+                                ty.append(float(df.loc[d, "Low"]) - offset)
                         else:
                             ty.append(tavg[tx.index(d)])
-                    ttxt = [f"TP x{c} @ {p:.2f} | PnL +{pnl:.2f}" for c, p, pnl in zip(tcnt, tavg, tpnl)]
+                    tp_sym = "triangle-down" if is_long_disp else "triangle-up"
+                    ttxt = [f"TP x{c} @ {p:.2f} | PnL {pnl:+.2f}" for c, p, pnl in zip(tcnt, tavg, tpnl)]
                     fig_p.add_trace(go.Scatter(
                         x=tx, y=ty, mode="markers", name="TP",
-                        marker=dict(symbol="triangle-down", size=8, color="#fbbf24", line=dict(width=0)),
+                        marker=dict(symbol=tp_sym, size=8, color="#fbbf24", line=dict(width=0)),
                         hovertext=ttxt, hoverinfo="text",
                     ))
 
@@ -648,6 +677,7 @@ with strategy_tab1:
                                 margin_per_contract=margin_per_contract_disp,
                                 point_value=st.session_state.get("bt_point_value", 1.0),
                                 commission_per_side=st.session_state.get("bt_commission", 0.0),
+                                direction=st.session_state.get("bt_direction", "Long").lower(),
                             )
                             r_entries  = len(r.trades)
                             r_exits    = r.total_trades
