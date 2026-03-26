@@ -458,6 +458,7 @@ def run_backtest(
             "margin_per_contract": margin_per_contract,
             "qty_per_entry":       qty_per_entry,
             "point_value":         point_value,
+            "commission_per_side": commission_per_side,
         },
     )
 
