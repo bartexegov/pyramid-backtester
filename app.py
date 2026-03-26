@@ -426,17 +426,30 @@ with strategy_tab1:
             cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f} (margin only)")
             unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
             cards_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
+            # Balance at Low (intraday) — at worst price within bar, not Close
             bal_worst_col_pos = result.balance_at_max_capital >= 0
-            cards_html += metric_card("Balance at Low (intraday)", f"${result.balance_at_max_capital:,.2f}", "balance at Low price — chart shows balance at Close", positive=bal_worst_col_pos)
+            cards_html += metric_card("Balance at Low (intraday)", f"${result.balance_at_max_capital:,.2f}", "realized PnL + unrealized at bar LOW — not at Close", positive=bal_worst_col_pos)
+
             cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
             cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
             cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
+
+            # Lowest balance at Close — worst end-of-day balance
             min_balance = float(result.balance_curve.min())
             min_balance_idx = result.balance_curve.idxmin()
             min_balance_date = fmt_date(min_balance_idx)
             min_balance_contracts = int(result.daily_open_contracts.loc[min_balance_idx]) if min_balance_idx in result.daily_open_contracts.index else 0
             cards_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"{min_balance_date} · {min_balance_contracts} contracts open", positive=False)
+
+            # Total capital needed at worst Close day:
+            # = margin for open contracts + abs(balance if negative) + commissions already paid
+            # In other words: how much you needed in your account on that worst day
+            # = contracts × margin - balance (if balance negative, you need extra on top of margin)
+            worst_margin = min_balance_contracts * margin_per_contract_disp
+            # If balance is negative you need margin PLUS cover the loss
+            total_needed = worst_margin + max(0.0, -min_balance)
+            cards_html += metric_card("Total needed at worst day", f"${total_needed:,.2f}", f"margin ${worst_margin:,.0f} + loss cover ${max(0.0,-min_balance):,.0f}", positive=False)
             cards_html += '</div>'
             st.markdown(cards_html, unsafe_allow_html=True)
 
