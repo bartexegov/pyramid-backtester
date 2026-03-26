@@ -825,7 +825,78 @@ with strategy_tab1:
                     fig_heat.update_traces(textfont=dict(size=11))
                     st.plotly_chart(fig_heat, use_container_width=True)
 
-                    st.markdown("<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:16px 0 10px 0'>Top 20 combinations</div>", unsafe_allow_html=True)
-                    render_opt_table(opt_df_sorted, top_n=20)
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                    # ── Sort & display controls ───────────────────────────────
+                    sort_col1, sort_col2, sort_col3 = st.columns([3, 2, 1])
+                    with sort_col1:
+                        sort_by = st.selectbox(
+                            "Sort by",
+                            options=[
+                                "PnL ($)",
+                                "Balance at worst",
+                                "Max capital ($)",
+                                "Commission",
+                                "Entries",
+                                "Closed (TP)",
+                                "Avg days",
+                                "Max contr.",
+                            ],
+                            index=0,
+                            key="opt_sort_by",
+                        )
+                    with sort_col2:
+                        sort_asc = st.radio(
+                            "Order",
+                            ["Best first (↓)", "Worst first (↑)"],
+                            index=0,
+                            horizontal=True,
+                            key="opt_sort_order",
+                        )
+                    with sort_col3:
+                        top_n_sel = st.selectbox(
+                            "Show top",
+                            options=[10, 20, 30, 50],
+                            index=1,
+                            key="opt_top_n",
+                        )
+
+                    # Map display sort column to actual df column
+                    sort_col_map = {
+                        "PnL ($)":          "PnL ($)",
+                        "Balance at worst": "Balance at worst",
+                        "Max capital ($)":  "Max capital ($)",
+                        "Commission":       "Total comm ($)",
+                        "Entries":          "Entries",
+                        "Closed (TP)":      "Closed (TP)",
+                        "Avg days":         "Avg days",
+                        "Max contr.":       "Max contr.",
+                    }
+                    # For most metrics "best" = highest value (PnL, closed)
+                    # For cost metrics "best" = lowest value (commission, capital, days)
+                    ascending_when_best = {
+                        "PnL ($)":          False,
+                        "Balance at worst": False,
+                        "Max capital ($)":  True,
+                        "Total comm ($)":   True,
+                        "Entries":          False,
+                        "Closed (TP)":      False,
+                        "Avg days":         True,
+                        "Max contr.":       True,
+                    }
+                    actual_col  = sort_col_map[sort_by]
+                    best_first  = sort_asc == "Best first (↓)"
+                    ascending   = not ascending_when_best[actual_col] if not best_first else ascending_when_best[actual_col]
+
+                    # Sort ALL combinations then show top N
+                    opt_df_view = opt_df.sort_values(actual_col, ascending=ascending).reset_index(drop=True)
+                    total_combos = len(opt_df_view)
+
+                    st.markdown(
+                        f"<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:8px 0 10px 0'>"
+                        f"Showing top {min(top_n_sel, total_combos)} of {total_combos} combinations · sorted by <b style='color:#38bdf8'>{sort_by}</b></div>",
+                        unsafe_allow_html=True
+                    )
+                    render_opt_table(opt_df_view, top_n=top_n_sel)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
