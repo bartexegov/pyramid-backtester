@@ -427,6 +427,14 @@ with strategy_tab1:
             cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f} (margin only)")
             unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
             cards_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
+
+            # Balance at Close on the day with most contracts open
+            max_contr_idx = result.daily_open_contracts.idxmax()
+            max_contr_date = fmt_date(max_contr_idx)
+            bal_at_max_contr = float(result.balance_curve.loc[max_contr_idx]) if max_contr_idx in result.balance_curve.index else 0.0
+            bal_at_max_contr_pos = bal_at_max_contr >= 0
+            cards_html += metric_card("Balance at peak contracts", f"${bal_at_max_contr:,.2f}", f"Close balance on {max_contr_date} ({result.max_concurrent} contracts)", positive=bal_at_max_contr_pos)
+
             cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
             cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
