@@ -43,7 +43,8 @@ class BacktestResult:
     max_capital_with_unrealized:  float
     win_rate:                     float
     avg_days_open:                float
-    equity_curve:                 pd.Series
+    equity_curve:                 pd.Series   # realized PnL only (cumulative)
+    balance_curve:                pd.Series   # realized + unrealized (mark-to-market at Close)
     daily_open_contracts:         pd.Series
     total_commission:             float
     params:                       dict
@@ -262,11 +263,12 @@ def run_backtest(
     max_concurrent: int = 0
     cumulative_pnl: float = 0.0
 
-    daily_open = pd.Series(0, index=df.index, dtype=int)
-    equity_curve = pd.Series(0.0, index=df.index)
-
     ec_per_entry = commission_per_side * qty_per_entry  # entry commission, constant
     max_capital_with_unrealized: float = 0.0
+
+    daily_open    = pd.Series(0,   index=df.index, dtype=int)
+    equity_curve  = pd.Series(0.0, index=df.index)
+    balance_curve = pd.Series(0.0, index=df.index)  # realized + unrealized at Close
 
     for i in range(len(df)):
         date      = df.index[i]
@@ -382,6 +384,17 @@ def run_backtest(
             max_concurrent = current_open
         equity_curve.iloc[i] = cumulative_pnl
 
+        # Balance curve = realized PnL + unrealized PnL at bar Close
+        # Unrealized = (close - entry) × qty × point_value for each open trade
+        # For Short: unrealized = (entry - close) × qty × point_value
+        unrealized_at_close = 0.0
+        for ot in open_trades:
+            if is_long:
+                unrealized_at_close += (bar_close - ot.entry_price) * qty_per_entry * point_value
+            else:
+                unrealized_at_close += (ot.entry_price - bar_close) * qty_per_entry * point_value
+        balance_curve.iloc[i] = cumulative_pnl + unrealized_at_close
+
         # ── Krok 5: Max capital including unrealized loss ─────────────────────
         # Margin capital + unrealized loss on open positions at worst bar price.
         # For LONG:  worst price on bar = Low  (positions losing value)
@@ -426,8 +439,9 @@ def run_backtest(
         win_rate                    = win_rate,
         avg_days_open               = avg_days,
         total_commission            = total_comm,
-        equity_curve         = equity_curve,
-        daily_open_contracts = daily_open,
+        equity_curve                = equity_curve,
+        balance_curve               = balance_curve,
+        daily_open_contracts        = daily_open,
         params               = {
             "entry_threshold":     entry_threshold,
             "pyramid_step":        pyramid_step,

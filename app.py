@@ -451,6 +451,8 @@ with strategy_tab1:
                 st.plotly_chart(fig_open, use_container_width=True)
 
             with chart_tab3:
+                from plotly.subplots import make_subplots
+
                 entry_groups = collections.defaultdict(list)
                 for t in result.trades:
                     entry_groups[t.entry_date].append(t.entry_price)
@@ -462,16 +464,46 @@ with strategy_tab1:
                         tp_groups[t.exit_date].append(t.exit_price)
                         tp_pnl_groups[t.exit_date] += t.pnl
 
-                fig_p = go.Figure()
+                # Build hover text for each bar: date, OHLC, balance, open contracts
+                open_contracts_series = result.daily_open_contracts
+                balance_series        = result.balance_curve
+                equity_series         = result.equity_curve
+
+                hover_texts = []
+                for idx_d in df.index:
+                    o  = df.loc[idx_d, "Open"]
+                    h  = df.loc[idx_d, "High"]
+                    l  = df.loc[idx_d, "Low"]
+                    c  = df.loc[idx_d, "Close"]
+                    bal = balance_series.get(idx_d, 0.0)
+                    eq  = equity_series.get(idx_d, 0.0)
+                    oc  = open_contracts_series.get(idx_d, 0)
+                    hover_texts.append(
+                        f"<b>{str(idx_d)[:10]}</b><br>"
+                        f"O: {o:.2f}  H: {h:.2f}  L: {l:.2f}  C: {c:.2f}<br>"
+                        f"<b>Balance: {bal:+.2f}</b>  (realized: {eq:+.2f})<br>"
+                        f"Open contracts: {int(oc)}"
+                    )
+
+                # Subplot: price 70% / balance 30%
+                fig_p = make_subplots(
+                    rows=2, cols=1, shared_xaxes=True,
+                    row_heights=[0.68, 0.32], vertical_spacing=0.03,
+                    subplot_titles=["", "Account balance ($)"]
+                )
+
+                # ── Row 1: Candlestick ────────────────────────────────────────
                 fig_p.add_trace(go.Candlestick(
                     x=df.index, open=df["Open"], high=df["High"],
                     low=df["Low"], close=df["Close"], name="Price",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
-                ))
+                    text=hover_texts, hoverinfo="text",
+                ), row=1, col=1)
+
                 fig_p.add_hline(y=entry_threshold_disp, line_dash="dash",
                     line_color="#f87171", line_width=1.5,
-                    annotation_text=f"Threshold {entry_threshold_disp}$",
-                    annotation_position="right")
+                    annotation_text=f"Threshold {entry_threshold_disp}",
+                    annotation_position="right", row=1, col=1)
 
                 price_range = float(df["High"].max() - df["Low"].min())
                 offset = price_range * 0.008
@@ -483,11 +515,7 @@ with strategy_tab1:
                     ey = []
                     for d in ex:
                         if d in df.index:
-                            # Long: marker below low; Short: marker above high
-                            if is_long_disp:
-                                ey.append(float(df.loc[d, "Low"]) - offset)
-                            else:
-                                ey.append(float(df.loc[d, "High"]) + offset)
+                            ey.append(float(df.loc[d, "Low"]) - offset if is_long_disp else float(df.loc[d, "High"]) + offset)
                         else:
                             ey.append(eavg[ex.index(d)])
                     entry_label = "Buy" if is_long_disp else "Sell Short"
@@ -498,7 +526,7 @@ with strategy_tab1:
                         x=ex, y=ey, mode="markers", name=entry_label,
                         marker=dict(symbol=entry_sym, size=8, color=entry_col, line=dict(width=0)),
                         hovertext=etxt, hoverinfo="text",
-                    ))
+                    ), row=1, col=1)
 
                 if tp_groups:
                     tx   = list(tp_groups.keys())
@@ -508,11 +536,7 @@ with strategy_tab1:
                     ty = []
                     for d in tx:
                         if d in df.index:
-                            # Long TP above high; Short TP below low
-                            if is_long_disp:
-                                ty.append(float(df.loc[d, "High"]) + offset)
-                            else:
-                                ty.append(float(df.loc[d, "Low"]) - offset)
+                            ty.append(float(df.loc[d, "High"]) + offset if is_long_disp else float(df.loc[d, "Low"]) - offset)
                         else:
                             ty.append(tavg[tx.index(d)])
                     tp_sym = "triangle-down" if is_long_disp else "triangle-up"
@@ -521,17 +545,50 @@ with strategy_tab1:
                         x=tx, y=ty, mode="markers", name="TP",
                         marker=dict(symbol=tp_sym, size=8, color="#fbbf24", line=dict(width=0)),
                         hovertext=ttxt, hoverinfo="text",
-                    ))
+                    ), row=1, col=1)
+
+                # ── Row 2: Balance curve ─────────────────────────────────────
+                bal_vals  = balance_series.values
+                eq_vals   = equity_series.values
+                bal_color = ["#34d399" if v >= 0 else "#f87171" for v in bal_vals]
+
+                # Balance (realized + unrealized) — filled area
+                fig_p.add_trace(go.Scatter(
+                    x=balance_series.index, y=bal_vals,
+                    mode="lines", name="Balance",
+                    line=dict(color="#38bdf8", width=1.5),
+                    fill="tozeroy",
+                    fillcolor="rgba(56,189,248,0.12)",
+                    hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Balance: <b>%{y:+.2f}</b><extra></extra>",
+                ), row=2, col=1)
+
+                # Realized PnL only — thin dashed line for reference
+                fig_p.add_trace(go.Scatter(
+                    x=equity_series.index, y=eq_vals,
+                    mode="lines", name="Realized PnL",
+                    line=dict(color="#94a3b8", width=1, dash="dot"),
+                    hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Realized: <b>%{y:+.2f}</b><extra></extra>",
+                ), row=2, col=1)
+
+                fig_p.add_hline(y=0, line_dash="dot", line_color="#475569",
+                    line_width=1, row=2, col=1)
 
                 fig_p.update_layout(
-                    template="plotly_dark", height=500,
-                    margin=dict(l=0, r=0, t=24, b=0),
+                    template="plotly_dark", height=620,
+                    margin=dict(l=0, r=0, t=32, b=0),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] — price with signals (hover for details)", font=dict(size=13, color="#94a3b8")),
-                    xaxis=dict(gridcolor="#1e293b"),
-                    yaxis=dict(gridcolor="#1e293b"),
-                    legend=dict(orientation="h", y=1.02, x=0, font=dict(color="#94a3b8")),
+                    title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] — price · signals · account balance", font=dict(size=13, color="#94a3b8")),
+                    legend=dict(orientation="h", y=1.04, x=0, font=dict(color="#94a3b8")),
+                    hovermode="x unified",
+                )
+                fig_p.update_xaxes(gridcolor="#1e293b", showgrid=True)
+                fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
+                fig_p.update_yaxes(
+                    gridcolor="#1e293b", row=2, col=1,
+                    title_text="Balance ($)",
+                    title_font=dict(color="#64748b", size=11),
+                    zeroline=True, zerolinecolor="#334155", zerolinewidth=2,
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
