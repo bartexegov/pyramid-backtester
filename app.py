@@ -130,7 +130,6 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         rb_style = f"display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:0.75rem;font-weight:700;{rb_bg};color:{rb_col}"
         pnl = row["PnL ($)"]
         pnl_col = "#34d399" if pnl >= 0 else "#f87171"
-        ops_val  = row["Total ops"]       if "Total ops"       in row.index else 0
         comm_val = row["Total comm ($)"]  if "Total comm ($)"  in row.index else 0.0
         row_bg = {1: "background:rgba(251,191,36,0.08)", 2: "background:rgba(148,163,184,0.06)", 3: "background:rgba(205,124,47,0.06)"}.get(rank, "")
         rows_html += f"""<tr style="{row_bg}">
@@ -141,8 +140,6 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <td style="{S_TD}">{row['Entries']}</td>
             <td style="{S_TD}">{row['Closed (TP)']}</td>
             <td style="{S_TD}">{row['Open']}</td>
-            <td style="{S_TD};color:#fbbf24;font-weight:700">{ops_val}</td>
-            <td style="{S_TD}">{row['Win %']:.1f}%</td>
             <td style="{S_TD};color:#f87171">${comm_val:,.2f}</td>
             <td style="{S_TD}">{row['Max contr.']}</td>
             <td style="{S_TD}">${row['Max capital ($)']:,}</td>
@@ -150,7 +147,7 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         </tr>"""
     html = f"""<table style="{S_TABLE}"><thead><tr>
             {th("#")}{th("Step")}{th("TP")}{th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
-            {th("Total ops","#fbbf24")}{th("Win %")}{th("Commission","#f87171")}
+            {th("Commission","#f87171")}
             {th("Max contr.")}{th("Max capital")}{th("Avg days")}
         </tr></thead><tbody>{rows_html}</tbody></table>"""
     st.markdown(html, unsafe_allow_html=True)
