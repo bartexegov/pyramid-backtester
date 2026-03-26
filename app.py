@@ -415,6 +415,28 @@ with strategy_tab1:
         low_date    = fmt_date(df["Low"].idxmin())
 
         if True:
+            # ── Active parameters banner ───────────────────────
+            _step = result.params.get("pyramid_step", "?")
+            _tp   = result.params.get("take_profit", "?")
+            _thr  = result.params.get("entry_threshold", "?")
+            _comm = result.params.get("commission_per_side", 0.0)
+            _pv   = result.params.get("point_value", 1.0)
+            st.markdown(
+                f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
+                f"padding:10px 16px;margin-bottom:12px;font-size:0.82rem;display:flex;"
+                f"flex-wrap:wrap;gap:16px;align-items:center'>"
+                f"<span style='color:#64748b;font-weight:600;text-transform:uppercase;"
+                f"font-size:0.65rem;letter-spacing:0.08em'>Active parameters</span>"
+                f"<span style='color:#e2e8f0'>Threshold: <b style='color:#f87171'>{_thr}$</b></span>"
+                f"<span style='color:#e2e8f0'>Step: <b style='color:#38bdf8'>{_step}$</b></span>"
+                f"<span style='color:#e2e8f0'>TP: <b style='color:#34d399'>{_tp}$</b></span>"
+                f"<span style='color:#e2e8f0'>Commission: <b style='color:#94a3b8'>{_comm}$/side</b></span>"
+                f"<span style='color:#e2e8f0'>Point value: <b style='color:#94a3b8'>{_pv:.0f} $/pt</b></span>"
+                f"<span style='color:#e2e8f0'>Direction: <b style='color:"
+                f"{'#34d399' if direction_disp=='Long' else '#f87171'}'>{direction_disp}</b></span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
             cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
             total_comm_paid = getattr(result, "total_commission", 0.0)
             total_entries   = len(result.trades)
