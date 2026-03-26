@@ -509,8 +509,16 @@ with strategy_tab1:
                     oc  = open_contracts_series.get(idx_d, 0)
                     unr = bal - eq
                     bal_color_txt = "<span style='color:#34d399'>" if bal >= 0 else "<span style='color:#f87171'>"
+                    # For 1h bars include time, for daily/weekly just date
+                    if tf_interval_disp == "1h":
+                        try:
+                            time_str = f" {idx_d.strftime('%H:%M')}"
+                        except Exception:
+                            time_str = ""
+                    else:
+                        time_str = ""
                     hover_texts.append(
-                        f"<b style='font-size:13px'>{fmt_date(idx_d)}</b><br>"
+                        f"<b style='font-size:13px'>{fmt_date(idx_d)}{time_str}</b><br>"
                         f"<span style='font-size:12px'>"
                         f"Open: <b>{o:.2f}</b>  High: <b>{h:.2f}</b>  Low: <b>{l:.2f}</b>  Close: <b>{c:.2f}</b><br>"
                         f"Balance: {bal_color_txt}<b>{bal:+.2f}</b></span><br>"
