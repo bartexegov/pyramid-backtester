@@ -561,7 +561,7 @@ with strategy_tab1:
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
                     title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] — price · signals · account balance", font=dict(size=13, color="#94a3b8")),
-                    legend=dict(orientation="h", y=1.04, x=0, font=dict(color="#94a3b8")),
+                    legend=dict(orientation="h", y=-0.12, x=0, font=dict(color="#94a3b8")),
                     hovermode="x unified",
                 )
                 fig_p.update_xaxes(gridcolor="#1e293b", showgrid=True)
