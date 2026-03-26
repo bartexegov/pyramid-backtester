@@ -104,7 +104,7 @@ OPT_COL_TIPS = {
     "Win %":       "Percentage of closed trades with positive net PnL (after commission). 100% = every closed contract was profitable net of fees.",
     "Commission":  "Total commission cost. Formula: Total ops × commission/side. Red because it directly reduces your PnL.",
     "Max contr.":  "Peak simultaneous open contracts — occurs at deepest price drop. Determines max capital required.",
-    "Max capital": "Max contracts × margin/contract = minimum account size needed to survive the worst drawdown.",
+    "Max capital": "Real capital needed = margin + max unrealized floating loss at worst intrabar price. Same formula as 'Max capital (real)' in the metrics above.",
     "Avg days":    "Average calendar days from entry to TP hit. Low = fast turnover. High = capital tied up for longer.",
 }
 
@@ -774,8 +774,8 @@ with strategy_tab1:
                                 "Total ops":       r_ops,
                                 "Win %":           round(r.win_rate, 1),
                                 "Total comm ($)":  round(comm_cost, 2),
-                                "Max contr.":      r.max_concurrent,
-                                "Max capital ($)": int(r.max_capital_needed),
+                                 "Max contr.":      r.max_concurrent,
+                                 "Max capital ($)": int(r.max_capital_with_unrealized),
                                 "Avg days":        int(r.avg_days_open),
                             })
                             done = idx_s * len(tps) + idx_t + 1
