@@ -433,8 +433,10 @@ with strategy_tab1:
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
             cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
             min_balance = float(result.balance_curve.min())
-            min_balance_date = fmt_date(result.balance_curve.idxmin())
-            cards_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"worst day at Close · {min_balance_date}", positive=False)
+            min_balance_idx = result.balance_curve.idxmin()
+            min_balance_date = fmt_date(min_balance_idx)
+            min_balance_contracts = int(result.daily_open_contracts.loc[min_balance_idx]) if min_balance_idx in result.daily_open_contracts.index else 0
+            cards_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"{min_balance_date} · {min_balance_contracts} contracts open", positive=False)
             cards_html += '</div>'
             st.markdown(cards_html, unsafe_allow_html=True)
 
