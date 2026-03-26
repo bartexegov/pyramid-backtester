@@ -206,8 +206,11 @@ with st.sidebar:
                 unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
                 st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
 
+    # Auto-detect point_value from contract specs (works for both continuous and specific)
+    # point_value = USD value of 1 price point = tick_value / tick_size
+    # e.g. ZC: 12.50 / 0.25 = 50 (1 cent/bushel × 5000 bushels = $50)
     _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
-    if _ci and contract_mode == "Specific month":
+    if _ci:
         point_value = _ci["tick_value"] / _ci["tick"]
     else:
         point_value = 1.0
@@ -389,8 +392,8 @@ with strategy_tab1:
         direction_disp           = st.session_state.get("bt_direction", "Long")
         is_long_disp             = direction_disp == "Long"
 
-        pnl_currency = "USD" if pv > 1.0 else "pts"
-        pv_info = f"point value: {pv:.0f} $/pt" if pv > 1.0 else "continuous contract (PnL in price points)"
+        pnl_currency = "USD"
+        pv_info = f"point value: {pv:.0f} $/pt (auto-detected)"
         comm = st.session_state.get("bt_commission", 0.0)
         comm_info = f"commission: ${comm:.2f}/side (${comm*2:.2f} round-trip per contract)" if comm > 0 else "no commission"
         dir_badge_color = "#34d399" if is_long_disp else "#f87171"
