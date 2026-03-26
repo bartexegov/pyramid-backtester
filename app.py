@@ -432,6 +432,9 @@ with strategy_tab1:
             cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
             cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
+            min_balance = float(result.balance_curve.min())
+            min_balance_date = fmt_date(result.balance_curve.idxmin())
+            cards_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"worst day at Close · {min_balance_date}", positive=False)
             cards_html += '</div>'
             st.markdown(cards_html, unsafe_allow_html=True)
 
