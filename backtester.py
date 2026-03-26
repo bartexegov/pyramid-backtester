@@ -272,12 +272,17 @@ def run_backtest(
     equity_curve  = pd.Series(0.0, index=df.index)
     balance_curve = pd.Series(0.0, index=df.index)  # realized + unrealized at Close
 
+    # Ensure columns are flat scalars (guard against MultiIndex from yfinance)
+    for col in ["Open", "High", "Low", "Close"]:
+        if isinstance(df[col].iloc[0], pd.Series):
+            df[col] = df[col].apply(lambda x: float(x.iloc[0]) if isinstance(x, pd.Series) else float(x))
+
     for i in range(len(df)):
         date      = df.index[i]
-        bar_open  = float(df["Open"].iloc[i])
-        bar_high  = float(df["High"].iloc[i])
-        bar_low   = float(df["Low"].iloc[i])
-        bar_close = float(df["Close"].iloc[i])
+        bar_open  = float(df["Open"].iat[i])
+        bar_high  = float(df["High"].iat[i])
+        bar_low   = float(df["Low"].iat[i])
+        bar_close = float(df["Close"].iat[i])
 
         # ── STEP 1a: Gap TP (open gaps through TP level) ─────────────────────
         still_open: List[Trade] = []
