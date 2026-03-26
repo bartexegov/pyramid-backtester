@@ -409,25 +409,7 @@ with strategy_tab1:
 
             # ── Charts ────────────────────────────────────────
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            chart_tab1, chart_tab2, chart_tab3 = st.tabs(["Equity Curve", "Open contracts", "Price + signals"])
-
-            with chart_tab1:
-                fig_eq = go.Figure()
-                fig_eq.add_trace(go.Scatter(
-                    x=result.equity_curve.index, y=result.equity_curve.values,
-                    mode="lines", name="PnL",
-                    line=dict(color="#38bdf8", width=2),
-                    fill="tozeroy", fillcolor="rgba(56,189,248,0.08)",
-                ))
-                fig_eq.add_hline(y=0, line_dash="dot", line_color="#475569", opacity=0.6)
-                fig_eq.update_layout(
-                    template="plotly_dark", height=360,
-                    margin=dict(l=0,r=0,t=24,b=0),
-                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    title=dict(text=f"Equity Curve — cumulative PnL ({tf_label_disp})", font=dict(size=13, color="#94a3b8")),
-                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
-                )
-                st.plotly_chart(fig_eq, use_container_width=True)
+            chart_tab1, chart_tab2 = st.tabs(["📈 Price + signals", "Open contracts"])
 
             with chart_tab2:
                 fig_open = go.Figure()
@@ -450,7 +432,7 @@ with strategy_tab1:
                 )
                 st.plotly_chart(fig_open, use_container_width=True)
 
-            with chart_tab3:
+            with chart_tab1:
                 from plotly.subplots import make_subplots
 
                 entry_groups = collections.defaultdict(list)
