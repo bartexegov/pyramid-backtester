@@ -644,7 +644,13 @@ with strategy_tab1:
                     margin=dict(l=0, r=0, t=40, b=60),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] · {direction_disp} · threshold {entry_threshold_disp}$ · step {st.session_state.get('bt_step', '')}$ · TP {st.session_state.get('bt_tp', '')}$", font=dict(size=13, color="#94a3b8")),
+                    title=dict(text=(
+                        f"{commodity_name_disp}  |  {tf_label_disp}  |  {direction_disp}"
+                        f"  |  Threshold: {entry_threshold_disp}$"
+                        f"  |  Step: {st.session_state.get('bt_step', '?')}$"
+                        f"  |  TP: {st.session_state.get('bt_tp', '?')}$"
+                        f"  |  Commission: {st.session_state.get('bt_commission', 0.0)}$/side"
+                    ), font=dict(size=12, color="#94a3b8")),
                     legend=dict(orientation="h", y=-0.1, x=0, font=dict(color="#94a3b8", size=12)),
                     hovermode="x unified",
                     hoverlabel=dict(bgcolor="#1e293b", bordercolor="#334155", font=dict(size=13, color="#e2e8f0")),
