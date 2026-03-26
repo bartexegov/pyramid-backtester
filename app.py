@@ -963,6 +963,53 @@ with strategy_tab1:
                             f"Showing top {min(top_n_sel, total_combos)} of {total_combos} combinations · sorted by <b style='color:#38bdf8'>{sort_by}</b>{filter_note}</div>",
                             unsafe_allow_html=True
                         )
+                        st.caption("👆 Click a row below to load its parameters and re-run the backtest")
+
+                        # Build display rows for selectbox
+                        view_slice = opt_df_view.head(top_n_sel)
+                        row_labels = []
+                        for idx_r, r_row in view_slice.iterrows():
+                            row_labels.append(
+                                f"#{idx_r+1}  Step {r_row['Step ($)']}$ / TP {r_row['TP ($)']}$"
+                                f"  →  PnL ${r_row['PnL ($)']:,.0f}"
+                                f"  |  Capital ${r_row['Max capital ($)']:,}"
+                            )
+
+                        selected_row_label = st.selectbox(
+                            "Select row to apply",
+                            options=["— (no selection)"] + row_labels,
+                            index=0,
+                            key="opt_selected_row",
+                            label_visibility="collapsed",
+                        )
+
+                        # If user selected a row — apply its params and re-run backtest
+                        if selected_row_label != "— (no selection)":
+                            sel_idx = row_labels.index(selected_row_label)
+                            sel_row = view_slice.iloc[sel_idx]
+                            new_step = float(sel_row["Step ($)"])
+                            new_tp   = float(sel_row["TP ($)"])
+
+                            # Only re-run if params actually changed
+                            if (new_step != st.session_state.get("bt_step") or
+                                    new_tp != st.session_state.get("bt_tp")):
+                                with st.spinner(f"Running backtest with Step={new_step}$ / TP={new_tp}$..."):
+                                    r_new = run_backtest(
+                                        df=df,
+                                        entry_threshold=entry_threshold_disp,
+                                        pyramid_step=new_step,
+                                        take_profit=new_tp,
+                                        margin_per_contract=margin_per_contract_disp,
+                                        point_value=st.session_state.get("bt_point_value", 1.0),
+                                        commission_per_side=st.session_state.get("bt_commission", 0.0),
+                                        direction=st.session_state.get("bt_direction", "Long").lower(),
+                                    )
+                                st.session_state["bt_result"] = r_new
+                                st.session_state["bt_step"]   = new_step
+                                st.session_state["bt_tp"]     = new_tp
+                                st.success(f"Loaded: Step={new_step}$ / TP={new_tp}$ — scroll up to see updated chart & metrics")
+                                st.rerun()
+
                         render_opt_table(opt_df_view, top_n=top_n_sel)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
