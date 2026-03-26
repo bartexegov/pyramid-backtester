@@ -41,6 +41,7 @@ class BacktestResult:
     max_concurrent:               int
     max_capital_needed:           float
     max_capital_with_unrealized:  float
+    balance_at_max_capital:       float
     win_rate:                     float
     avg_days_open:                float
     equity_curve:                 pd.Series   # realized PnL only (cumulative)
@@ -265,6 +266,7 @@ def run_backtest(
 
     ec_per_entry = commission_per_side * qty_per_entry  # entry commission, constant
     max_capital_with_unrealized: float = 0.0
+    balance_at_max_capital:      float = 0.0  # account balance at the worst capital moment
 
     daily_open    = pd.Series(0,   index=df.index, dtype=int)
     equity_curve  = pd.Series(0.0, index=df.index)
@@ -403,17 +405,23 @@ def run_backtest(
         # This represents how much ADDITIONAL capital you need beyond margin
         # to cover the floating loss at the worst intrabar moment.
         if open_trades:
-            worst_price = bar_low if is_long else bar_high
-            unrealized_loss = 0.0
+            worst_price      = bar_low if is_long else bar_high
+            unrealized_loss  = 0.0
+            unrealized_worst = 0.0
             for ot in open_trades:
                 if is_long:
                     loss = max(0.0, (ot.entry_price - worst_price) * qty_per_entry * point_value)
+                    unr_worst = (worst_price - ot.entry_price) * qty_per_entry * point_value
                 else:
                     loss = max(0.0, (worst_price - ot.entry_price) * qty_per_entry * point_value)
-                unrealized_loss += loss
+                    unr_worst = (ot.entry_price - worst_price) * qty_per_entry * point_value
+                unrealized_loss  += loss
+                unrealized_worst += unr_worst
             capital_this_bar = current_open * margin_per_contract + unrealized_loss
             if capital_this_bar > max_capital_with_unrealized:
                 max_capital_with_unrealized = capital_this_bar
+                # balance = realized PnL + unrealized at worst price - commissions already in cumulative_pnl
+                balance_at_max_capital = cumulative_pnl + unrealized_worst
 
     # Statystyki koncowe
     closed_trades = [t for t in trades if t.closed]
@@ -436,6 +444,7 @@ def run_backtest(
         max_concurrent              = max_concurrent,
         max_capital_needed          = max_capital,
         max_capital_with_unrealized = max_capital_with_unrealized,
+        balance_at_max_capital      = balance_at_max_capital,
         win_rate                    = win_rate,
         avg_days_open               = avg_days,
         total_commission            = total_comm,
