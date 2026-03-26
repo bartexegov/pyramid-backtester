@@ -907,14 +907,16 @@ with strategy_tab1:
                     ascending   = not ascending_when_best[actual_col] if not best_first else ascending_when_best[actual_col]
 
                     # Sort ALL combinations then show top N
-                    opt_df_view = opt_df.sort_values(actual_col, ascending=ascending).reset_index(drop=True)
-                    total_combos = len(opt_df_view)
+                    with st.spinner("Sorting and filtering..."):
+                        opt_df_view  = opt_df.sort_values(actual_col, ascending=ascending).reset_index(drop=True)
+                        total_combos = len(opt_df_view)
 
-                    filter_note = ""
-                    if max_cap_filter > 0:
-                        orig_count = len(pd.DataFrame(opt_results))
-                        filtered_count = total_combos
-                        filter_note = f" · <span style='color:#fbbf24'>filtered: {filtered_count}/{orig_count} within ${max_cap_filter:,.0f}</span>"
+                        filter_note = ""
+                        if max_cap_filter > 0:
+                            orig_count     = len(pd.DataFrame(opt_results))
+                            filtered_count = total_combos
+                            filter_note    = f" · <span style='color:#fbbf24'>filtered: {filtered_count}/{orig_count} within ${max_cap_filter:,.0f}</span>"
+
                     if total_combos == 0:
                         st.warning(f"No combinations found within max capital ${max_cap_filter:,.0f}. Try increasing the limit.")
                     else:
@@ -923,7 +925,6 @@ with strategy_tab1:
                             f"Showing top {min(top_n_sel, total_combos)} of {total_combos} combinations · sorted by <b style='color:#38bdf8'>{sort_by}</b>{filter_note}</div>",
                             unsafe_allow_html=True
                         )
-                    if total_combos > 0:
                         render_opt_table(opt_df_view, top_n=top_n_sel)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
