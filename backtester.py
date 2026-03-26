@@ -593,18 +593,28 @@ def find_support_zones(df: pd.DataFrame, bins: int = 200, top_n: int = 5, min_ga
     return zones, poc, va_low, va_high
 
 
+def _fmt_date_us(d) -> str:
+    """Format date as MM/DD/YYYY (US standard)."""
+    try:
+        s = str(d)[:10]
+        y, m, day = s.split("-")
+        return f"{m}/{day}/{y}"
+    except Exception:
+        return str(d)[:10]
+
+
 def trades_to_dataframe(trades: List[Trade]) -> pd.DataFrame:
     rows = []
     for t in trades:
         rows.append({
-            "Poziom":        t.level,
-            "Data wejscia":  str(t.entry_date)[:10] if t.entry_date else "",
-            "Cena wejscia":  round(t.entry_price, 4),
+            "Level":         t.level,
+            "Entry date":    _fmt_date_us(t.entry_date) if t.entry_date else "",
+            "Entry price":   round(t.entry_price, 4),
             "TP":            round(t.tp_price, 4),
-            "Data wyjscia":  str(t.exit_date)[:10] if t.exit_date else "OTWARTE",
-            "Cena wyjscia":  round(t.exit_price, 4) if isinstance(t.exit_price, (int, float)) else None,
+            "Exit date":     _fmt_date_us(t.exit_date) if t.exit_date else "OPEN",
+            "Exit price":    round(t.exit_price, 4) if isinstance(t.exit_price, (int, float)) else None,
             "PnL ($)":       round(t.pnl, 2) if t.closed else None,
-            "Dni otwarcia":  t.days_open if t.closed else None,
-            "Status":        "Zamkniete" if t.closed else "Otwarte",
+            "Days open":     t.days_open if t.closed else None,
+            "Status":        "Closed" if t.closed else "Open",
         })
     return pd.DataFrame(rows)

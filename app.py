@@ -48,6 +48,16 @@ st.markdown("""
 # HELPERS
 # ─────────────────────────────────────────────────────────────
 
+def fmt_date(d) -> str:
+    """Convert any date/timestamp/string to US format MM/DD/YYYY."""
+    try:
+        s = str(d)[:10]          # get YYYY-MM-DD part
+        y, m, day = s.split("-")
+        return f"{m}/{day}/{y}"
+    except Exception:
+        return str(d)[:10]
+
+
 def info(tooltip_text: str) -> str:
     """Info icon using title= attribute - works in all Streamlit versions."""
     safe = tooltip_text.replace('"', '').replace("'", "").replace('<', '').replace('>', '')
@@ -184,14 +194,14 @@ with st.sidebar:
                 contract_labels = []
                 for c in contracts:
                     oi_str = f"{c['open_interest']:,}" if c['open_interest'] else "?"
-                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  exp {c['expiry']}  |  OI: {oi_str}")
+                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  exp {fmt_date(c['expiry'])}  |  OI: {oi_str}")
                 selected_label = st.selectbox("Select contract", contract_labels, label_visibility="collapsed")
                 selected_idx = contract_labels.index(selected_label)
                 selected = contracts[selected_idx]
                 symbol = selected["symbol"]
                 ci = COMMODITY_CONTRACT_INFO[commodity_name]
                 st.caption(f"Symbol: `{symbol}`")
-                st.caption(f"Expires: {selected['expiry']}  |  OI: {selected['open_interest']:,}")
+                st.caption(f"Expires: {fmt_date(selected['expiry'])}  |  OI: {selected['open_interest']:,}")
                 unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
                 st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
 
@@ -336,8 +346,8 @@ with strategy_tab1:
             st.session_state["bt_df"]              = df_new
             st.session_state["bt_result"]          = result_new
             st.session_state["bt_symbol"]          = commodity_name
-            st.session_state["bt_start"]           = str(start_date)
-            st.session_state["bt_end"]             = str(end_date)
+            st.session_state["bt_start"]           = fmt_date(start_date)
+            st.session_state["bt_end"]             = fmt_date(end_date)
             st.session_state["bt_margin"]          = margin_per_contract
             st.session_state["bt_threshold"]       = entry_threshold
             st.session_state["bt_point_value"]     = point_value
@@ -382,8 +392,8 @@ with strategy_tab1:
         pnl_pos = result.total_pnl >= 0
         period_high = float(df["High"].max())
         period_low  = float(df["Low"].min())
-        high_date   = str(df["High"].idxmax())[:10]
-        low_date    = str(df["Low"].idxmin())[:10]
+        high_date   = fmt_date(df["High"].idxmax())
+        low_date    = fmt_date(df["Low"].idxmin())
 
         if True:
             cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
@@ -463,7 +473,7 @@ with strategy_tab1:
                     unr = bal - eq
                     bal_color_txt = "<span style='color:#34d399'>" if bal >= 0 else "<span style='color:#f87171'>"
                     hover_texts.append(
-                        f"<b style='font-size:13px'>{str(idx_d)[:10]}</b><br>"
+                        f"<b style='font-size:13px'>{fmt_date(idx_d)}</b><br>"
                         f"<span style='font-size:12px'>"
                         f"Open: <b>{o:.2f}</b>  High: <b>{h:.2f}</b>  Low: <b>{l:.2f}</b>  Close: <b>{c:.2f}</b><br>"
                         f"Balance: {bal_color_txt}<b>{bal:+.2f}</b></span><br>"
@@ -568,7 +578,7 @@ with strategy_tab1:
                     mode="lines", name="Balance",
                     line=dict(color="rgba(0,0,0,0)", width=0),
                     showlegend=False,
-                    hovertemplate="Balance: <b>%{y:+.2f}</b><extra></extra>",
+                    hovertemplate="%{x|%m/%d/%Y} Balance: <b>%{y:+.2f}</b><extra></extra>",
                 ), row=2, col=1)
 
                 # Realized PnL — thin dashed reference line
@@ -576,7 +586,7 @@ with strategy_tab1:
                     x=list(equity_series.index), y=eq_vals,
                     mode="lines", name="Realized PnL",
                     line=dict(color="#94a3b8", width=1, dash="dot"),
-                    hovertemplate="Realized: <b>%{y:+.2f}</b><extra></extra>",
+                    hovertemplate="%{x|%m/%d/%Y} Realized: <b>%{y:+.2f}</b><extra></extra>",
                 ), row=2, col=1)
 
                 fig_p.add_hline(y=0, line_dash="solid", line_color="#475569",
@@ -630,7 +640,7 @@ with strategy_tab1:
             else:
                 vp_period_high = float(vp_df_raw["High"].max())
                 vp_period_low  = float(vp_df_raw["Low"].min())
-                st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:12px'>✓ {len(vp_df_raw)} sessions · {vp_start} → {vp_end}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:12px'>✓ {len(vp_df_raw)} sessions · {fmt_date(vp_start)} → {fmt_date(vp_end)}</div>", unsafe_allow_html=True)
 
                 kl = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
                 kl += metric_card("Point of Control", f"${poc:,.2f}", "price with highest volume")
