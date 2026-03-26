@@ -453,24 +453,29 @@ with strategy_tab1:
 
                 hover_texts = []
                 for idx_d in df.index:
-                    o  = df.loc[idx_d, "Open"]
-                    h  = df.loc[idx_d, "High"]
-                    l  = df.loc[idx_d, "Low"]
-                    c  = df.loc[idx_d, "Close"]
+                    o   = df.loc[idx_d, "Open"]
+                    h   = df.loc[idx_d, "High"]
+                    l   = df.loc[idx_d, "Low"]
+                    c   = df.loc[idx_d, "Close"]
                     bal = balance_series.get(idx_d, 0.0)
                     eq  = equity_series.get(idx_d, 0.0)
                     oc  = open_contracts_series.get(idx_d, 0)
+                    unr = bal - eq
+                    bal_color_txt = "<span style='color:#34d399'>" if bal >= 0 else "<span style='color:#f87171'>"
                     hover_texts.append(
-                        f"<b>{str(idx_d)[:10]}</b><br>"
-                        f"O: {o:.2f}  H: {h:.2f}  L: {l:.2f}  C: {c:.2f}<br>"
-                        f"<b>Balance: {bal:+.2f}</b>  (realized: {eq:+.2f})<br>"
-                        f"Open contracts: {int(oc)}"
+                        f"<b style='font-size:13px'>{str(idx_d)[:10]}</b><br>"
+                        f"<span style='font-size:12px'>"
+                        f"Open: <b>{o:.2f}</b>  High: <b>{h:.2f}</b>  Low: <b>{l:.2f}</b>  Close: <b>{c:.2f}</b><br>"
+                        f"Balance: {bal_color_txt}<b>{bal:+.2f}</b></span><br>"
+                        f"<span style='font-size:11px;color:#94a3b8'>"
+                        f"Realized: {eq:+.2f}  |  Unrealized: {unr:+.2f}<br>"
+                        f"Open contracts: {int(oc)}</span>"
                     )
 
-                # Subplot: price 70% / balance 30%
+                # Subplot: price 60% / balance 40% (taller balance panel)
                 fig_p = make_subplots(
                     rows=2, cols=1, shared_xaxes=True,
-                    row_heights=[0.68, 0.32], vertical_spacing=0.03,
+                    row_heights=[0.58, 0.42], vertical_spacing=0.04,
                     subplot_titles=["", "Account balance ($)"]
                 )
 
@@ -529,40 +534,63 @@ with strategy_tab1:
                         hovertext=ttxt, hoverinfo="text",
                     ), row=1, col=1)
 
-                # ── Row 2: Balance curve ─────────────────────────────────────
-                bal_vals  = balance_series.values
-                eq_vals   = equity_series.values
-                bal_color = ["#34d399" if v >= 0 else "#f87171" for v in bal_vals]
+                # ── Row 2: Balance curve — green above zero, red below ───────
+                bal_vals = balance_series.values
+                eq_vals  = equity_series.values
+                bal_x    = list(balance_series.index)
 
-                # Balance (realized + unrealized) — filled area
+                # Build colored segments: split at zero crossings
+                # Use scatter with color per segment via separate traces per sign
+                pos_y = [v if v >= 0 else 0.0 for v in bal_vals]
+                neg_y = [v if v < 0  else 0.0 for v in bal_vals]
+
+                # Positive balance — green fill
                 fig_p.add_trace(go.Scatter(
-                    x=balance_series.index, y=bal_vals,
-                    mode="lines", name="Balance",
-                    line=dict(color="#38bdf8", width=1.5),
-                    fill="tozeroy",
-                    fillcolor="rgba(56,189,248,0.12)",
-                    hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Balance: <b>%{y:+.2f}</b><extra></extra>",
+                    x=bal_x, y=pos_y,
+                    mode="lines", name="Balance (+)",
+                    line=dict(color="#34d399", width=2),
+                    fill="tozeroy", fillcolor="rgba(52,211,153,0.15)",
+                    hoverinfo="skip", showlegend=True,
                 ), row=2, col=1)
 
-                # Realized PnL only — thin dashed line for reference
+                # Negative balance — red fill
                 fig_p.add_trace(go.Scatter(
-                    x=equity_series.index, y=eq_vals,
+                    x=bal_x, y=neg_y,
+                    mode="lines", name="Balance (−)",
+                    line=dict(color="#f87171", width=2),
+                    fill="tozeroy", fillcolor="rgba(248,113,113,0.15)",
+                    hoverinfo="skip", showlegend=True,
+                ), row=2, col=1)
+
+                # Invisible hover trace for balance — full values with tooltip
+                fig_p.add_trace(go.Scatter(
+                    x=bal_x, y=bal_vals,
+                    mode="lines", name="Balance",
+                    line=dict(color="rgba(0,0,0,0)", width=0),
+                    showlegend=False,
+                    hovertemplate="Balance: <b>%{y:+.2f}</b><extra></extra>",
+                ), row=2, col=1)
+
+                # Realized PnL — thin dashed reference line
+                fig_p.add_trace(go.Scatter(
+                    x=list(equity_series.index), y=eq_vals,
                     mode="lines", name="Realized PnL",
                     line=dict(color="#94a3b8", width=1, dash="dot"),
-                    hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Realized: <b>%{y:+.2f}</b><extra></extra>",
+                    hovertemplate="Realized: <b>%{y:+.2f}</b><extra></extra>",
                 ), row=2, col=1)
 
-                fig_p.add_hline(y=0, line_dash="dot", line_color="#475569",
+                fig_p.add_hline(y=0, line_dash="solid", line_color="#475569",
                     line_width=1, row=2, col=1)
 
                 fig_p.update_layout(
-                    template="plotly_dark", height=620,
-                    margin=dict(l=0, r=0, t=32, b=0),
+                    template="plotly_dark", height=700,
+                    margin=dict(l=0, r=0, t=40, b=60),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
                     title=dict(text=f"{commodity_name_disp} [{tf_label_disp}] — price · signals · account balance", font=dict(size=13, color="#94a3b8")),
-                    legend=dict(orientation="h", y=-0.12, x=0, font=dict(color="#94a3b8")),
+                    legend=dict(orientation="h", y=-0.1, x=0, font=dict(color="#94a3b8", size=12)),
                     hovermode="x unified",
+                    hoverlabel=dict(bgcolor="#1e293b", bordercolor="#334155", font=dict(size=13, color="#e2e8f0")),
                 )
                 fig_p.update_xaxes(gridcolor="#1e293b", showgrid=True)
                 fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
@@ -570,7 +598,7 @@ with strategy_tab1:
                     gridcolor="#1e293b", row=2, col=1,
                     title_text="Balance ($)",
                     title_font=dict(color="#64748b", size=11),
-                    zeroline=True, zerolinecolor="#334155", zerolinewidth=2,
+                    zeroline=True, zerolinecolor="#475569", zerolinewidth=2,
                 )
                 st.plotly_chart(fig_p, use_container_width=True)
 
