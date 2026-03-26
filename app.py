@@ -63,7 +63,8 @@ METRIC_TOOLTIPS = {
     "Closed trades":     "Number of contracts that hit their Take Profit and were sold. Each contract bought = 1 trade. Win = PnL > 0 after commission. Loss = PnL ≤ 0 (commission exceeded gross profit).",
     "Avg PnL / trade":   "Average net PnL per closed contract. Formula: Total PnL ÷ Closed trades. Negative means average commission cost exceeds average gross profit per trade.",
     "Max contracts":     "Peak number of simultaneously open contracts during the entire backtest period. Occurs at the deepest price drawdown.",
-    "Max capital req.":  "Maximum margin capital needed at the worst moment. Formula: Max contracts × margin per contract. This is the minimum account size you need to survive the worst drawdown.",
+    "Max capital req.":  "Margin only: Max contracts × margin per contract. Does NOT include floating losses on open positions.",
+    "Max capital (real)": "Real capital needed = margin + max unrealized loss at the worst intrabar price. This is the true minimum account size to survive the worst moment.",
     "Open positions":    "Contracts still open (TP not yet hit) at the end of the backtest period. Entry commission already paid, exit commission not yet paid.",
     "Avg days to TP":    "Average number of calendar days from entry to TP hit. Measures how long you typically wait for a position to become profitable.",
     "Period HIGH":       "Highest High price of any bar in the selected date range. Sourced from Yahoo Finance daily OHLCV data.",
@@ -396,7 +397,9 @@ with strategy_tab1:
             cards_html += metric_card("Closed trades", str(total_exits), f"{result.winning_trades}W / {result.losing_trades}L")
             cards_html += metric_card("Avg PnL / trade", f"${avg_pnl:.2f}", "per closed contract", positive=avg_pnl >= 0)
             cards_html += metric_card("Max contracts", str(result.max_concurrent), "open simultaneously")
-            cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f}")
+            cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f} (margin only)")
+            unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
+            cards_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
             cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
             cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")

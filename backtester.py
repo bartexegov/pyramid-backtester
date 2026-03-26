@@ -32,20 +32,21 @@ class Trade:
 
 @dataclass
 class BacktestResult:
-    trades:               List[Trade]
-    total_pnl:            float
-    total_trades:         int
-    winning_trades:       int
-    losing_trades:        int
-    open_trades:          int
-    max_concurrent:       int
-    max_capital_needed:   float
-    win_rate:             float
-    avg_days_open:        float
-    equity_curve:         pd.Series
-    daily_open_contracts: pd.Series
-    total_commission:     float
-    params:               dict
+    trades:                       List[Trade]
+    total_pnl:                    float
+    total_trades:                 int
+    winning_trades:               int
+    losing_trades:                int
+    open_trades:                  int
+    max_concurrent:               int
+    max_capital_needed:           float
+    max_capital_with_unrealized:  float
+    win_rate:                     float
+    avg_days_open:                float
+    equity_curve:                 pd.Series
+    daily_open_contracts:         pd.Series
+    total_commission:             float
+    params:                       dict
 
 
 # ─────────────────────────────────────────────────────────────
@@ -265,6 +266,7 @@ def run_backtest(
     equity_curve = pd.Series(0.0, index=df.index)
 
     ec_per_entry = commission_per_side * qty_per_entry  # entry commission, constant
+    max_capital_with_unrealized: float = 0.0
 
     for i in range(len(df)):
         date      = df.index[i]
@@ -380,6 +382,26 @@ def run_backtest(
             max_concurrent = current_open
         equity_curve.iloc[i] = cumulative_pnl
 
+        # ── Krok 5: Max capital including unrealized loss ─────────────────────
+        # Margin capital + unrealized loss on open positions at worst bar price.
+        # For LONG:  worst price on bar = Low  (positions losing value)
+        # For SHORT: worst price on bar = High (positions losing value)
+        # Unrealized loss per contract = abs(entry_price - worst_price) × point_value
+        # This represents how much ADDITIONAL capital you need beyond margin
+        # to cover the floating loss at the worst intrabar moment.
+        if open_trades:
+            worst_price = bar_low if is_long else bar_high
+            unrealized_loss = 0.0
+            for ot in open_trades:
+                if is_long:
+                    loss = max(0.0, (ot.entry_price - worst_price) * qty_per_entry * point_value)
+                else:
+                    loss = max(0.0, (worst_price - ot.entry_price) * qty_per_entry * point_value)
+                unrealized_loss += loss
+            capital_this_bar = current_open * margin_per_contract + unrealized_loss
+            if capital_this_bar > max_capital_with_unrealized:
+                max_capital_with_unrealized = capital_this_bar
+
     # Statystyki koncowe
     closed_trades = [t for t in trades if t.closed]
     open_remaining = [t for t in trades if not t.closed]
@@ -392,17 +414,18 @@ def run_backtest(
     max_capital = float(max_concurrent) * margin_per_contract
 
     return BacktestResult(
-        trades               = trades,
-        total_pnl            = total_pnl,
-        total_trades         = len(closed_trades),
-        winning_trades       = len(winning),
-        losing_trades        = len(losing),
-        open_trades          = len(open_remaining),
-        max_concurrent       = max_concurrent,
-        max_capital_needed   = max_capital,
-        win_rate             = win_rate,
-        avg_days_open        = avg_days,
-        total_commission     = total_comm,
+        trades                      = trades,
+        total_pnl                   = total_pnl,
+        total_trades                = len(closed_trades),
+        winning_trades              = len(winning),
+        losing_trades               = len(losing),
+        open_trades                 = len(open_remaining),
+        max_concurrent              = max_concurrent,
+        max_capital_needed          = max_capital,
+        max_capital_with_unrealized = max_capital_with_unrealized,
+        win_rate                    = win_rate,
+        avg_days_open               = avg_days,
+        total_commission            = total_comm,
         equity_curve         = equity_curve,
         daily_open_contracts = daily_open,
         params               = {
