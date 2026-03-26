@@ -271,6 +271,8 @@ with st.sidebar:
     opt_tp_max   = 10.0
     opt_tp_inc   = 1.0
 
+    opt_max_capital = 0.0  # 0 = no filter
+
     if optimize_enabled:
         st.caption("**Pyramid step range**")
         cs1, cs2, cs3 = st.columns(3)
@@ -291,6 +293,16 @@ with st.sidebar:
         n_s = max(1, round((opt_step_max - opt_step_min) / opt_step_inc) + 1)
         n_t = max(1, round((opt_tp_max - opt_tp_min) / opt_tp_inc) + 1)
         st.caption(f"Total: **{n_s * n_t} combinations**")
+        st.markdown("---", unsafe_allow_html=False)
+        st.caption("**Max account capital ($)**")
+        opt_max_capital = st.number_input(
+            "Max capital I have ($)",
+            min_value=0.0, value=0.0, step=1000.0, format="%.0f",
+            key="opt_max_capital",
+            help="Filter out combinations where 'Max capital (real)' exceeds this amount. Set to 0 to show all.",
+        )
+        if opt_max_capital > 0:
+            st.caption(f"Only showing combos requiring ≤ **${opt_max_capital:,.0f}**")
 
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
@@ -787,6 +799,12 @@ with strategy_tab1:
                     prog.empty()
 
                     opt_df = pd.DataFrame(opt_results)
+
+                    # Apply max capital filter if set
+                    max_cap_filter = st.session_state.get("opt_max_capital", 0.0)
+                    if max_cap_filter > 0:
+                        opt_df = opt_df[opt_df["Max capital ($)"] <= max_cap_filter].copy()
+
                     opt_df_sorted = opt_df.sort_values("PnL ($)", ascending=False).reset_index(drop=True)
 
                     medals = [("🥇","gold"), ("🥈","silver"), ("🥉","bronze")]
@@ -892,11 +910,20 @@ with strategy_tab1:
                     opt_df_view = opt_df.sort_values(actual_col, ascending=ascending).reset_index(drop=True)
                     total_combos = len(opt_df_view)
 
-                    st.markdown(
-                        f"<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:8px 0 10px 0'>"
-                        f"Showing top {min(top_n_sel, total_combos)} of {total_combos} combinations · sorted by <b style='color:#38bdf8'>{sort_by}</b></div>",
-                        unsafe_allow_html=True
-                    )
-                    render_opt_table(opt_df_view, top_n=top_n_sel)
+                    filter_note = ""
+                    if max_cap_filter > 0:
+                        orig_count = len(pd.DataFrame(opt_results))
+                        filtered_count = total_combos
+                        filter_note = f" · <span style='color:#fbbf24'>filtered: {filtered_count}/{orig_count} within ${max_cap_filter:,.0f}</span>"
+                    if total_combos == 0:
+                        st.warning(f"No combinations found within max capital ${max_cap_filter:,.0f}. Try increasing the limit.")
+                    else:
+                        st.markdown(
+                            f"<div style='font-size:0.9rem;font-weight:600;color:#94a3b8;margin:8px 0 10px 0'>"
+                            f"Showing top {min(top_n_sel, total_combos)} of {total_combos} combinations · sorted by <b style='color:#38bdf8'>{sort_by}</b>{filter_note}</div>",
+                            unsafe_allow_html=True
+                        )
+                    if total_combos > 0:
+                        render_opt_table(opt_df_view, top_n=top_n_sel)
 
             st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
