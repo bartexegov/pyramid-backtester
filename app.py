@@ -105,7 +105,7 @@ OPT_COL_TIPS = {
     "Commission":  "Total commission cost. Formula: Total ops × commission/side. Red because it directly reduces your PnL.",
     "Max contr.":  "Peak simultaneous open contracts — occurs at deepest price drop. Determines max capital required.",
     "Max capital": "Real capital needed = margin + max unrealized floating loss at worst intrabar price. Same formula as 'Max capital (real)' in the metrics above.",
-    "Balance at worst": "Account balance at the exact moment of max capital requirement. Formula: realized PnL + unrealized PnL at worst intrabar price. Negative = account is underwater at that moment.",
+    "Balance at Low (intraday)": "Account balance calculated at the bar's LOW price (worst intraday moment), at the same time as Max capital peaked. Formula: realized PnL + unrealized PnL at Low. Compare to chart which shows balance at Close.",
     "Avg days":    "Average calendar days from entry to TP hit. Low = fast turnover. High = capital tied up for longer.",
 }
 
@@ -132,7 +132,7 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         pnl = row["PnL ($)"]
         pnl_col = "#34d399" if pnl >= 0 else "#f87171"
         comm_val = row["Total comm ($)"]     if "Total comm ($)"     in row.index else 0.0
-        bal_worst = row["Balance at worst"]  if "Balance at worst"   in row.index else 0.0
+        bal_worst = row["Balance at Low (intraday)"]  if "Balance at Low (intraday)"   in row.index else 0.0
         bal_worst_col = "#34d399" if bal_worst >= 0 else "#f87171"
         row_bg = {1: "background:rgba(251,191,36,0.08)", 2: "background:rgba(148,163,184,0.06)", 3: "background:rgba(205,124,47,0.06)"}.get(rank, "")
         rows_html += f"""<tr style="{row_bg}">
@@ -152,7 +152,7 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
     html = f"""<table style="{S_TABLE}"><thead><tr>
             {th("#")}{th("Step")}{th("TP")}{th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
             {th("Commission","#f87171")}
-            {th("Max contr.")}{th("Max capital")}{th("Balance at worst")}{th("Avg days")}
+            {th("Max contr.")}{th("Max capital")}{th("Balance at Low (intraday)")}{th("Avg days")}
         </tr></thead><tbody>{rows_html}</tbody></table>"""
     st.markdown(html, unsafe_allow_html=True)
 
@@ -427,7 +427,7 @@ with strategy_tab1:
             unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
             cards_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
             bal_worst_col_pos = result.balance_at_max_capital >= 0
-            cards_html += metric_card("Balance at worst", f"${result.balance_at_max_capital:,.2f}", "account balance when capital req. peaked", positive=bal_worst_col_pos)
+            cards_html += metric_card("Balance at Low (intraday)", f"${result.balance_at_max_capital:,.2f}", "balance at Low price — chart shows balance at Close", positive=bal_worst_col_pos)
             cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
             cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
             cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
@@ -504,7 +504,7 @@ with strategy_tab1:
                 fig_p = make_subplots(
                     rows=2, cols=1, shared_xaxes=True,
                     row_heights=[0.58, 0.42], vertical_spacing=0.04,
-                    subplot_titles=["", "Account balance ($)"]
+                    subplot_titles=["", "Balance at Close ($)"]
                 )
 
                 # ── Row 1: Candlestick ────────────────────────────────────────
@@ -624,7 +624,7 @@ with strategy_tab1:
                 fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
                 fig_p.update_yaxes(
                     gridcolor="#1e293b", row=2, col=1,
-                    title_text="Balance ($)",
+                    title_text="Balance at Close ($)",
                     title_font=dict(color="#64748b", size=11),
                     zeroline=True, zerolinecolor="#475569", zerolinewidth=2,
                 )
@@ -794,7 +794,7 @@ with strategy_tab1:
                                 "Total comm ($)":  round(comm_cost, 2),
                                  "Max contr.":      r.max_concurrent,
                                  "Max capital ($)": int(r.max_capital_with_unrealized),
-                                 "Balance at worst": round(r.balance_at_max_capital, 2),
+                                 "Balance at Low (intraday)": round(r.balance_at_max_capital, 2),
                                 "Avg days":        int(r.avg_days_open),
                             })
                             done = idx_s * len(tps) + idx_t + 1
@@ -855,7 +855,7 @@ with strategy_tab1:
                             "Sort by",
                             options=[
                                 "PnL ($)",
-                                "Balance at worst",
+                                "Balance at Low (intraday)",
                                 "Max capital ($)",
                                 "Commission",
                                 "Entries",
@@ -885,7 +885,7 @@ with strategy_tab1:
                     # Map display sort column to actual df column
                     sort_col_map = {
                         "PnL ($)":          "PnL ($)",
-                        "Balance at worst": "Balance at worst",
+                        "Balance at Low (intraday)": "Balance at Low (intraday)",
                         "Max capital ($)":  "Max capital ($)",
                         "Commission":       "Total comm ($)",
                         "Entries":          "Entries",
@@ -897,7 +897,7 @@ with strategy_tab1:
                     # For cost metrics "best" = lowest value (commission, capital, days)
                     ascending_when_best = {
                         "PnL ($)":          False,
-                        "Balance at worst": False,
+                        "Balance at Low (intraday)": False,
                         "Max capital ($)":  True,
                         "Total comm ($)":   True,
                         "Entries":          False,
