@@ -702,8 +702,9 @@ with strategy_tab1:
                         f"  |  Commission: {result.params.get('commission_per_side', st.session_state.get('bt_commission', 0.0))}$/side"
                     ), font=dict(size=12, color="#94a3b8")),
                     legend=dict(orientation="h", y=-0.1, x=0, font=dict(color="#94a3b8", size=12)),
-                    hovermode="x unified",
-                    hoverlabel=dict(bgcolor="#1e293b", bordercolor="#334155", font=dict(size=13, color="#e2e8f0")),
+                    hovermode="closest",
+                    hoverdistance=50,
+                    hoverlabel=dict(bgcolor="#1e293b", bordercolor="#334155", font=dict(size=13, color="#e2e8f0"), namelength=-1),
                 )
                 fig_p.update_xaxes(gridcolor="#1e293b", showgrid=True)
                 fig_p.update_yaxes(gridcolor="#1e293b", row=1, col=1)
