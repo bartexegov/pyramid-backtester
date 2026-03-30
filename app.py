@@ -187,25 +187,52 @@ with st.sidebar:
             st.warning("No contract data available for this instrument.")
             symbol = COMMODITY_SYMBOLS[commodity_name]
         else:
-            with st.spinner("Loading available contracts..."):
-                contracts = get_available_contracts(commodity_name, years_ahead=2)
+            # Cache contract list per commodity — only refetch when commodity changes
+            # This prevents the list from refreshing on every rerun (date change etc.)
+            # which caused the selectbox to reset to index=0
+            cache_key = f"contracts_{commodity_name}"
+            if cache_key not in st.session_state:
+                with st.spinner("Loading available contracts..."):
+                    st.session_state[cache_key] = get_available_contracts(commodity_name, years_ahead=2)
+
+            contracts = st.session_state[cache_key]
+
             if not contracts:
                 st.warning("No active contracts found. Using continuous contract.")
                 symbol = COMMODITY_SYMBOLS[commodity_name]
             else:
-                contract_labels = []
-                for c in contracts:
-                    oi_str = f"{c['open_interest']:,}" if c['open_interest'] else "?"
-                    contract_labels.append(f"{c['name']}  |  {c['price']:.2f}  |  exp {fmt_date(c['expiry'])}  |  OI: {oi_str}")
-                selected_label = st.selectbox("Select contract", contract_labels, label_visibility="collapsed")
-                selected_idx = contract_labels.index(selected_label)
+                # Build symbol list (stable — not dependent on prices which change)
+                contract_symbols = [c["symbol"] for c in contracts]
+                contract_labels  = [f"{c['name']}  |  exp {fmt_date(c['expiry'])}" for c in contracts]
+
+                # Restore previously selected symbol if it exists in current list
+                prev_sym = st.session_state.get(f"selected_contract_{commodity_name}", contract_symbols[0])
+                default_idx = contract_symbols.index(prev_sym) if prev_sym in contract_symbols else 0
+
+                selected_idx = st.selectbox(
+                    "Select contract",
+                    options=range(len(contract_labels)),
+                    format_func=lambda i: contract_labels[i],
+                    index=default_idx,
+                    label_visibility="collapsed",
+                    key=f"contract_sel_{commodity_name}",
+                )
+                # Save selection by symbol (stable) not label (changes with price)
                 selected = contracts[selected_idx]
                 symbol = selected["symbol"]
+                st.session_state[f"selected_contract_{commodity_name}"] = symbol
+
                 ci = COMMODITY_CONTRACT_INFO[commodity_name]
                 st.caption(f"Symbol: `{symbol}`")
-                st.caption(f"Expires: {fmt_date(selected['expiry'])}  |  OI: {selected['open_interest']:,}")
+                st.caption(f"Expires: {fmt_date(selected['expiry'])}")
                 unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
                 st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
+
+            # Refresh button — forces re-fetch of contract list
+            if st.button("🔄 Refresh contract list", key="refresh_contracts", use_container_width=True):
+                if cache_key in st.session_state:
+                    del st.session_state[cache_key]
+                st.rerun()
 
     # Auto-detect point_value from contract specs (works for both continuous and specific)
     # point_value = USD value of 1 price point = tick_value / tick_size
