@@ -574,39 +574,67 @@ with strategy_tab1:
                 price_range = float(df["High"].max() - df["Low"].min())
                 offset = price_range * 0.008
 
-                if entry_groups:
-                    ex   = list(entry_groups.keys())
-                    ecnt = [len(v) for v in entry_groups.values()]
-                    eavg = [sum(v)/len(v) for v in entry_groups.values()]
+                # Build per-contract detail maps for hover
+                # entry_details[date] = list of (entry_price) per contract
+                entry_details = collections.defaultdict(list)
+                for t in result.trades:
+                    entry_details[t.entry_date].append(t.entry_price)
+
+                # tp_details[exit_date] = list of (entry_price, exit_price, pnl)
+                tp_details = collections.defaultdict(list)
+                for t in result.trades:
+                    if t.closed:
+                        tp_details[t.exit_date].append((t.entry_price, t.exit_price, t.pnl))
+
+                entry_label = "Buy" if is_long_disp else "Sell Short"
+                entry_sym   = "triangle-up" if is_long_disp else "triangle-down"
+                entry_col   = "#34d399" if is_long_disp else "#f87171"
+
+                if entry_details:
+                    ex = list(entry_details.keys())
                     ey = []
                     for d in ex:
                         if d in df.index:
                             ey.append(float(df.loc[d, "Low"]) - offset if is_long_disp else float(df.loc[d, "High"]) + offset)
                         else:
-                            ey.append(eavg[ex.index(d)])
-                    entry_label = "Buy" if is_long_disp else "Sell Short"
-                    entry_sym   = "triangle-up" if is_long_disp else "triangle-down"
-                    entry_col   = "#34d399" if is_long_disp else "#f87171"
-                    etxt = [f"{entry_label} x{c} @ {p:.2f}" for c, p in zip(ecnt, eavg)]
+                            ey.append(float(entry_details[d][0]))
+
+                    # Hover: list each contract with its own price and date
+                    etxt = []
+                    for d in ex:
+                        prices = entry_details[d]
+                        lines = [f"<b>{entry_label} — {fmt_date(d)}</b>"]
+                        for idx_c, ep in enumerate(prices):
+                            lines.append(f"  Contract {idx_c+1}: bought @ <b>{ep:.2f}</b>  TP → {ep + result.params.get('take_profit', 0):.2f}")
+                        etxt.append("<br>".join(lines))
+
                     fig_p.add_trace(go.Scatter(
                         x=ex, y=ey, mode="markers", name=entry_label,
                         marker=dict(symbol=entry_sym, size=8, color=entry_col, line=dict(width=0)),
                         hovertext=etxt, hoverinfo="text",
                     ), row=1, col=1)
 
-                if tp_groups:
-                    tx   = list(tp_groups.keys())
-                    tcnt = [len(v) for v in tp_groups.values()]
-                    tavg = [sum(v)/len(v) for v in tp_groups.values()]
-                    tpnl = [tp_pnl_groups[d] for d in tx]
+                if tp_details:
+                    tx = list(tp_details.keys())
                     ty = []
                     for d in tx:
                         if d in df.index:
                             ty.append(float(df.loc[d, "High"]) + offset if is_long_disp else float(df.loc[d, "Low"]) - offset)
                         else:
-                            ty.append(tavg[tx.index(d)])
+                            ty.append(float(tp_details[d][0][1]))
+
+                    # Hover: list each contract with its own entry, exit price and PnL
                     tp_sym = "triangle-down" if is_long_disp else "triangle-up"
-                    ttxt = [f"TP x{c} @ {p:.2f} | PnL {pnl:+.2f}" for c, p, pnl in zip(tcnt, tavg, tpnl)]
+                    ttxt = []
+                    for d in tx:
+                        contracts = tp_details[d]
+                        total_pnl_day = sum(c[2] for c in contracts)
+                        lines = [f"<b>TP — {fmt_date(d)}</b>  ({len(contracts)} contract{'s' if len(contracts)>1 else ''})"]
+                        for idx_c, (ep, xp, pnl) in enumerate(contracts):
+                            lines.append(f"  Contract {idx_c+1}: bought @ {ep:.2f}  sold @ <b>{xp:.2f}</b>  PnL <b style='color:{'#34d399' if pnl>=0 else '#f87171'}'>{pnl:+.2f}</b>")
+                        lines.append(f"  <b>Total PnL: {total_pnl_day:+.2f}</b>")
+                        ttxt.append("<br>".join(lines))
+
                     fig_p.add_trace(go.Scatter(
                         x=tx, y=ty, mode="markers", name="TP",
                         marker=dict(symbol=tp_sym, size=8, color="#fbbf24", line=dict(width=0)),
