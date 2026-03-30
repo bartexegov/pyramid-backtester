@@ -394,6 +394,38 @@ def run_backtest(
                         last_entry_price = next_trigger
                         next_trigger     = last_entry_price + pyramid_step
 
+        # ── STEP 3b: Check TP for contracts just entered this bar ────────────────
+        # If a contract was bought this bar and High (Long) or Low (Short)
+        # already satisfies its TP — close it immediately at TP price.
+        # This handles the case: buy @ 450, TP=455, High=457 → sell same bar.
+        still_open3: List[Trade] = []
+        for trade in open_trades:
+            if trade.entry_date == date:
+                hit = (is_long and bar_high >= trade.tp_price) or (not is_long and bar_low <= trade.tp_price)
+                if hit:
+                    fill_price            = trade.tp_price
+                    trade.exit_date       = date
+                    trade.exit_price      = fill_price
+                    trade.exit_commission = ec_per_entry
+                    gross = (fill_price - trade.entry_price) * qty_per_entry * point_value if is_long else (trade.entry_price - fill_price) * qty_per_entry * point_value
+                    trade.pnl       = gross - trade.entry_commission - trade.exit_commission
+                    trade.days_open = 0
+                    trade.closed    = True
+                    cumulative_pnl += trade.pnl
+                    total_pnl      += trade.pnl
+                    total_comm     += trade.entry_commission + trade.exit_commission
+                else:
+                    still_open3.append(trade)
+            else:
+                still_open3.append(trade)
+        open_trades = still_open3
+
+        # Update last_entry_price after same-bar TP closures
+        if len(open_trades) == 0:
+            last_entry_price = None
+        else:
+            last_entry_price = min(t.entry_price for t in open_trades) if is_long else max(t.entry_price for t in open_trades)
+
         # ── Krok 4: Statystyki dzienne ────────────────────────────────────────
         current_open = len(open_trades)
         daily_open.iloc[i] = current_open
