@@ -334,13 +334,17 @@ def run_backtest(
         if is_long:
             if bar_low < entry_threshold:
                 if len(open_trades) == 0:
-                    fill_px = bar_open if bar_open < entry_threshold else bar_close
+                    # LONG first entry:
+                    # - Gap down (Open already below threshold): fill at Open
+                    # - Normal bar (Low crosses threshold intraday): fill at threshold
+                    fill_px = bar_open if bar_open < entry_threshold else entry_threshold
                     t = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=fill_px + take_profit, entry_commission=ec_per_entry)
                     cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
                     open_trades.append(t); trades.append(t)
                     last_entry_price = fill_px
 
                 if len(open_trades) > 0 and last_entry_price is not None:
+                    # Gap down through next trigger: fill all at Open price
                     if bar_open < last_entry_price - pyramid_step:
                         fill_px      = bar_open
                         next_trigger = last_entry_price - pyramid_step
@@ -350,6 +354,7 @@ def run_backtest(
                             open_trades.append(t); trades.append(t)
                             last_entry_price = next_trigger
                             next_trigger     = last_entry_price - pyramid_step
+                    # Normal intraday drop: fill at exact trigger price
                     next_trigger = last_entry_price - pyramid_step
                     while bar_low <= next_trigger:
                         t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=next_trigger, tp_price=next_trigger + take_profit, entry_commission=ec_per_entry)
@@ -360,13 +365,17 @@ def run_backtest(
         else:
             if bar_high > entry_threshold:
                 if len(open_trades) == 0:
-                    fill_px = bar_open if bar_open > entry_threshold else bar_close
+                    # SHORT first entry:
+                    # - Gap up (Open already above threshold): fill at Open
+                    # - Normal bar (High crosses threshold intraday): fill at threshold
+                    fill_px = bar_open if bar_open > entry_threshold else entry_threshold
                     t = Trade(level=1, entry_date=date, entry_price=fill_px, tp_price=fill_px - take_profit, entry_commission=ec_per_entry)
                     cumulative_pnl -= ec_per_entry; total_comm += ec_per_entry
                     open_trades.append(t); trades.append(t)
                     last_entry_price = fill_px
 
                 if len(open_trades) > 0 and last_entry_price is not None:
+                    # Gap up through next trigger: fill all at Open price
                     if bar_open > last_entry_price + pyramid_step:
                         fill_px      = bar_open
                         next_trigger = last_entry_price + pyramid_step
@@ -376,6 +385,7 @@ def run_backtest(
                             open_trades.append(t); trades.append(t)
                             last_entry_price = next_trigger
                             next_trigger     = last_entry_price + pyramid_step
+                    # Normal intraday rise: fill at exact trigger price
                     next_trigger = last_entry_price + pyramid_step
                     while bar_high >= next_trigger:
                         t = Trade(level=len(open_trades)+1, entry_date=date, entry_price=next_trigger, tp_price=next_trigger - take_profit, entry_commission=ec_per_entry)
