@@ -868,43 +868,41 @@ with strategy_tab1:
                 kl += '</div>'
                 st.markdown(kl, unsafe_allow_html=True)
 
-                fig_vp = go.Figure()
+                from plotly.subplots import make_subplots
+
+                # Use subplot: candlestick (75%) | VP histogram (25%) side by side
+                fig_vp = make_subplots(
+                    rows=1, cols=2,
+                    column_widths=[0.75, 0.25],
+                    horizontal_spacing=0.01,
+                    shared_yaxes=True,
+                )
+
+                # ── Left: Candlestick ─────────────────────────────
                 fig_vp.add_trace(go.Candlestick(
                     x=vp_df_raw.index, open=vp_df_raw["Open"], high=vp_df_raw["High"],
                     low=vp_df_raw["Low"], close=vp_df_raw["Close"], name="Price",
                     increasing_line_color="#34d399", decreasing_line_color="#f87171",
-                ))
-                zone_colors = ["rgba(56,189,248,0.15)","rgba(251,191,36,0.12)","rgba(52,211,153,0.12)",
-                               "rgba(248,113,113,0.12)","rgba(167,139,250,0.12)","rgba(249,115,22,0.12)"]
+                ), row=1, col=1)
+
+                zone_colors  = ["rgba(56,189,248,0.15)","rgba(251,191,36,0.12)","rgba(52,211,153,0.12)",
+                                "rgba(248,113,113,0.12)","rgba(167,139,250,0.12)","rgba(249,115,22,0.12)"]
                 border_colors = ["#38bdf8","#fbbf24","#34d399","#f87171","#a78bfa","#f97316"]
+
+                # Zone rectangles — no annotations (labels go on right panel)
                 for i, zone in enumerate(zones):
                     fig_vp.add_hrect(
                         y0=zone["zone_low"], y1=zone["zone_high"],
                         fillcolor=zone_colors[i % len(zone_colors)],
                         line=dict(color=border_colors[i % len(border_colors)], width=1, dash="dot"),
-                        annotation_text=f"  {zone['price']:.2f} ({zone['volume_pct']:.1f}%)",
-                        annotation_position="right",
-                        annotation=dict(font=dict(color=border_colors[i % len(border_colors)], size=11)),
+                        row=1, col=1,
                     )
-                fig_vp.add_hline(y=poc, line_dash="dash", line_color="#fbbf24", line_width=2,
-                    annotation_text=f"POC {poc:.2f}", annotation_position="left",
-                    annotation=dict(font=dict(color="#fbbf24", size=11)))
-                fig_vp.add_hline(y=va_low, line_dash="dash", line_color="#34d399", line_width=2,
-                    annotation_text=f"VA Low {va_low:.2f} ← entry", annotation_position="left",
-                    annotation=dict(font=dict(color="#34d399", size=11)))
-                fig_vp.add_hline(y=va_high, line_dash="dash", line_color="#38bdf8", line_width=1.5,
-                    annotation_text=f"VA High {va_high:.2f}", annotation_position="left",
-                    annotation=dict(font=dict(color="#38bdf8", size=11)))
-                fig_vp.update_layout(
-                    template="plotly_dark", height=520,
-                    margin=dict(l=0,r=120,t=24,b=0),
-                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    xaxis_rangeslider_visible=False,
-                    title=dict(text=f"{commodity_name} — Volume Profile & support zones", font=dict(size=13, color="#94a3b8")),
-                    xaxis=dict(gridcolor="#1e293b"), yaxis=dict(gridcolor="#1e293b"),
-                )
-                st.plotly_chart(fig_vp, use_container_width=True)
 
+                # POC and VA lines — no text annotations on chart
+                for yval, col, width in [(poc, "#fbbf24", 2), (va_low, "#34d399", 2), (va_high, "#38bdf8", 1.5)]:
+                    fig_vp.add_hline(y=yval, line_dash="dash", line_color=col, line_width=width, row=1, col=1)
+
+                # ── Right: VP Histogram ───────────────────────────
                 bar_colors = []
                 zone_ranges = [(z["zone_low"], z["zone_high"]) for z in zones]
                 for price in vp_data["price_level"]:
@@ -913,25 +911,78 @@ with strategy_tab1:
                     elif any(lo <= price <= hi for lo, hi in zone_ranges):
                         bar_colors.append("#38bdf8")
                     else:
-                        bar_colors.append("#334155")
+                        bar_colors.append("#1e3a5f")
 
-                fig_hist = go.Figure()
-                fig_hist.add_trace(go.Bar(
+                # Custom hover for each bar in histogram
+                vp_hover = []
+                for price, pct in zip(vp_data["price_level"], vp_data["pct"]):
+                    label = ""
+                    if abs(price - poc) < (vp_period_high - vp_period_low) / 300 * 4:
+                        label = " ← POC"
+                    elif abs(price - va_low) < (vp_period_high - vp_period_low) / 300 * 4:
+                        label = " ← VA Low"
+                    elif abs(price - va_high) < (vp_period_high - vp_period_low) / 300 * 4:
+                        label = " ← VA High"
+                    vp_hover.append(f"Price: {price:.2f}{label}<br>Volume: {pct:.2f}%")
+
+                fig_vp.add_trace(go.Bar(
                     x=vp_data["pct"], y=vp_data["price_level"],
-                    orientation="h", marker_color=bar_colors, marker_line_width=0,
-                ))
-                fig_hist.add_hline(y=poc,    line_dash="dash", line_color="#fbbf24", line_width=1.5)
-                fig_hist.add_hline(y=va_low, line_dash="dash", line_color="#34d399", line_width=1.5)
-                fig_hist.add_hline(y=va_high,line_dash="dash", line_color="#38bdf8", line_width=1)
-                fig_hist.update_layout(
-                    template="plotly_dark", height=380,
-                    margin=dict(l=0,r=0,t=8,b=0),
-                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
-                    xaxis=dict(title="% volume", gridcolor="#1e293b"),
-                    yaxis=dict(title="Price ($)", gridcolor="#1e293b"),
+                    orientation="h",
+                    marker_color=bar_colors, marker_line_width=0,
+                    name="Volume %",
+                    hovertext=vp_hover, hoverinfo="text",
                     showlegend=False,
+                ), row=1, col=2)
+
+                # POC / VA lines on histogram too
+                for yval, col, width in [(poc, "#fbbf24", 2), (va_low, "#34d399", 2), (va_high, "#38bdf8", 1.5)]:
+                    fig_vp.add_hline(y=yval, line_dash="dash", line_color=col, line_width=width, row=1, col=2)
+
+                # Zone fills on histogram
+                for i, zone in enumerate(zones):
+                    fig_vp.add_hrect(
+                        y0=zone["zone_low"], y1=zone["zone_high"],
+                        fillcolor=zone_colors[i % len(zone_colors)],
+                        line=dict(width=0),
+                        row=1, col=2,
+                    )
+
+                # ── Labels via scatter (right side of histogram) ──
+                label_x_max = float(vp_data["pct"].max()) * 1.05
+                label_items = [
+                    (poc,    "#fbbf24", f"POC {poc:.2f}"),
+                    (va_low, "#34d399", f"VA Low {va_low:.2f}"),
+                    (va_high,"#38bdf8", f"VA High {va_high:.2f}"),
+                ]
+                for i, zone in enumerate(zones):
+                    mid = (zone["zone_low"] + zone["zone_high"]) / 2
+                    label_items.append((mid, border_colors[i % len(border_colors)], f"{zone['price']:.2f} ({zone['volume_pct']:.1f}%)"))
+
+                for yval, col, txt in label_items:
+                    fig_vp.add_trace(go.Scatter(
+                        x=[label_x_max], y=[yval],
+                        mode="text",
+                        text=[txt],
+                        textposition="middle right",
+                        textfont=dict(color=col, size=10),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ), row=1, col=2)
+
+                fig_vp.update_layout(
+                    template="plotly_dark", height=580,
+                    margin=dict(l=0, r=140, t=32, b=0),
+                    paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
+                    title=dict(text=f"{commodity_name} — Volume Profile & support zones", font=dict(size=13, color="#94a3b8")),
+                    barmode="overlay",
+                    bargap=0,
+                    hovermode="y unified",
                 )
-                st.plotly_chart(fig_hist, use_container_width=True)
+                fig_vp.update_xaxes(gridcolor="#1e293b", row=1, col=1, rangeslider_visible=False)
+                fig_vp.update_xaxes(gridcolor="#1e293b", title_text="% vol", row=1, col=2, showticklabels=True)
+                fig_vp.update_yaxes(gridcolor="#1e293b", row=1, col=1)
+                fig_vp.update_yaxes(gridcolor="#1e293b", row=1, col=2, showticklabels=False)
+                st.plotly_chart(fig_vp, use_container_width=True)
 
                 zone_rows = ""
                 for z in zones:
