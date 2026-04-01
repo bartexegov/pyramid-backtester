@@ -10,7 +10,7 @@ import plotly.express as px
 from datetime import date, timedelta
 import collections
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile, fetch_coinbase_products, fetch_coinbase_candles, COINBASE_FUTURES, COINBASE_GRANULARITY
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -172,9 +172,86 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Data source ─────────────────────────────────────────
+    st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Data source</div>', unsafe_allow_html=True)
+    data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # ── Instrument ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Instrument</div>', unsafe_allow_html=True)
-    commodity_name = st.selectbox("Commodity", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
+
+    # ── COINBASE path ────────────────────────────────────────
+    coinbase_product_id = None
+    coinbase_point_value = 1.0
+
+    if data_source == "Coinbase (Crypto Futures)":
+        # Load Coinbase API keys from Streamlit secrets
+        try:
+            cb_key    = st.secrets["coinbase"]["api_key"]
+            cb_secret = st.secrets["coinbase"]["api_secret"]
+        except Exception:
+            cb_key = cb_secret = ""
+
+        # Cache Coinbase product list
+        if "coinbase_products" not in st.session_state:
+            with st.spinner("Loading Coinbase futures..."):
+                st.session_state["coinbase_products"] = fetch_coinbase_products(cb_key, cb_secret)
+
+        cb_products = st.session_state["coinbase_products"]
+
+        if not cb_products:
+            st.error("Could not load Coinbase futures. Check API keys in Streamlit Secrets.")
+        else:
+            # Group by prefix for better UX
+            prefixes = sorted(set(p["prefix"] for p in cb_products))
+            known_prefixes = [p for p in prefixes if p in COINBASE_FUTURES]
+            unknown_prefixes = [p for p in prefixes if p not in COINBASE_FUTURES]
+            all_prefixes = known_prefixes + unknown_prefixes
+
+            selected_prefix = st.selectbox(
+                "Crypto asset",
+                options=all_prefixes,
+                format_func=lambda x: COINBASE_FUTURES.get(x, (x, 1.0))[0],
+                label_visibility="collapsed",
+                key="cb_prefix_sel",
+            )
+
+            # Show contracts for selected prefix
+            prefix_products = [p for p in cb_products if p["prefix"] == selected_prefix]
+            product_options = [p["product_id"] for p in prefix_products]
+            product_labels  = [f"{p['product_id']}  exp {p['expiry']}" for p in prefix_products]
+
+            prev_pid = st.session_state.get(f"cb_selected_{selected_prefix}", product_options[0] if product_options else "")
+            default_idx = product_options.index(prev_pid) if prev_pid in product_options else 0
+
+            selected_cb_idx = st.selectbox(
+                "Contract",
+                options=range(len(product_labels)),
+                format_func=lambda i: product_labels[i],
+                index=default_idx,
+                label_visibility="collapsed",
+                key=f"cb_contract_sel_{selected_prefix}",
+            )
+            coinbase_product_id  = product_options[selected_cb_idx]
+            coinbase_point_value = COINBASE_FUTURES.get(selected_prefix, (selected_prefix, 1.0))[1]
+            st.session_state[f"cb_selected_{selected_prefix}"] = coinbase_product_id
+
+            st.caption(f"Product: `{coinbase_product_id}`")
+            st.caption(f"Point value: ${coinbase_point_value} per unit")
+
+            if st.button("🔄 Refresh Coinbase products", key="refresh_cb", use_container_width=True):
+                if "coinbase_products" in st.session_state:
+                    del st.session_state["coinbase_products"]
+                st.rerun()
+
+        commodity_name = selected_prefix if cb_products else "Coinbase"
+        symbol = coinbase_product_id or ""
+        point_value = coinbase_point_value
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    else:
+        # ── YAHOO FINANCE path ───────────────────────────────
+        commodity_name = st.selectbox("Commodity", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
 
     contract_mode = st.radio("Contract type", ["Continuous (=F)", "Specific month"], horizontal=True, label_visibility="collapsed")
 
@@ -234,16 +311,14 @@ with st.sidebar:
                     del st.session_state[cache_key]
                 st.rerun()
 
-    # Auto-detect point_value from contract specs (works for both continuous and specific)
-    # point_value = USD value of 1 price point = tick_value / tick_size
-    # e.g. ZC: 12.50 / 0.25 = 50 (1 cent/bushel × 5000 bushels = $50)
-    _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
-    if _ci:
-        point_value = _ci["tick_value"] / _ci["tick"]
-    else:
-        point_value = 1.0
+        # Auto-detect point_value from contract specs
+        _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
+        if _ci:
+            point_value = _ci["tick_value"] / _ci["tick"]
+        else:
+            point_value = 1.0
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Timeframe ────────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Timeframe</div>', unsafe_allow_html=True)
@@ -369,7 +444,16 @@ with strategy_tab1:
         df_new = None
         with st.spinner(f"Fetching data for {commodity_name}..."):
             try:
-                df_new = fetch_data(symbol, start=start_date, end=end_date, interval=tf_interval)
+                if data_source == "Coinbase (Crypto Futures)" and coinbase_product_id:
+                    gran = COINBASE_GRANULARITY.get(tf_interval, "ONE_DAY")
+                    try:
+                        cb_key    = st.secrets["coinbase"]["api_key"]
+                        cb_secret = st.secrets["coinbase"]["api_secret"]
+                    except Exception:
+                        cb_key = cb_secret = ""
+                    df_new = fetch_coinbase_candles(coinbase_product_id, start=start_date, end=end_date, granularity=gran, api_key=cb_key, api_secret=cb_secret)
+                else:
+                    df_new = fetch_data(symbol, start=start_date, end=end_date, interval=tf_interval)
             except Exception as e:
                 st.error(f"Data fetch error: {e}")
         if df_new is None or df_new.empty:

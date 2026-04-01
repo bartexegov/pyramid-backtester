@@ -186,6 +186,177 @@ def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
+# COINBASE FUTURES
+# ─────────────────────────────────────────────────────────────
+
+# Known Coinbase futures with friendly names
+# Format: product_prefix -> (friendly_name, point_value_usd)
+# point_value: USD per 1 price unit move per contract
+COINBASE_FUTURES = {
+    "BIT":  ("Bitcoin (BIT)",        1.0),
+    "MC":   ("Micro Bitcoin (MC)",   0.1),
+    "ET":   ("Ethereum (ET)",        1.0),
+    "SOL":  ("Solana (SOL)",         1.0),
+    "XRP":  ("XRP (XRP)",            1.0),
+    "DOG":  ("Dogecoin (DOG)",       1.0),
+    "ADA":  ("Cardano (ADA)",        1.0),
+    "BCH":  ("Bitcoin Cash (BCH)",   1.0),
+    "LNK":  ("Chainlink (LNK)",      1.0),
+    "DOT":  ("Polkadot (DOT)",       1.0),
+    "SUI":  ("Sui (SUI)",            1.0),
+    "AVA":  ("Avalanche (AVA)",      1.0),
+    "XLM":  ("Stellar (XLM)",        1.0),
+    "SHB":  ("Shiba Inu (SHB)",      1.0),
+    "GOL":  ("Gold (GOL)",           1.0),
+    "SLR":  ("Silver (SLR)",         1.0),
+    "CU":   ("Copper (CU)",          1.0),
+    "PT":   ("Platinum (PT)",        1.0),
+    "LC":   ("Crude Oil (LC)",       1.0),
+    "NGS":  ("Natural Gas (NGS)",    1.0),
+    "NOL":  ("Nat Gas NYMEX (NOL)",  1.0),
+}
+
+# Coinbase candle granularity mapping
+COINBASE_GRANULARITY = {
+    "1h":  "ONE_HOUR",
+    "1d":  "ONE_DAY",
+    "1wk": "ONE_DAY",   # weekly not supported — use daily
+}
+
+
+def fetch_coinbase_products(api_key: str = "", api_secret: str = "") -> list:
+    """
+    Fetch all available futures products from Coinbase.
+    Returns list of dicts: {product_id, base, name, expiry, last_price}
+    Uses public endpoint — no auth needed for market data.
+    """
+    import requests
+    try:
+        r = requests.get(
+            "https://api.coinbase.com/api/v3/brokerage/market/products",
+            params={"product_type": "FUTURE", "limit": 500},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return []
+        products = r.json().get("products", [])
+        results = []
+        for p in products:
+            pid  = p.get("product_id", "")
+            if not pid or "CDE" not in pid:
+                continue
+            parts  = pid.split("-")
+            prefix = parts[0]
+            expiry_str = parts[1] if len(parts) > 1 else ""
+            friendly = COINBASE_FUTURES.get(prefix, (prefix, 1.0))
+            results.append({
+                "product_id": pid,
+                "prefix":     prefix,
+                "name":       f"{friendly[0]} — {expiry_str}",
+                "expiry":     expiry_str,
+                "point_value": friendly[1],
+                "price":      float(p.get("price", 0) or 0),
+            })
+        # Sort by prefix then expiry
+        results.sort(key=lambda x: (x["prefix"], x["expiry"]))
+        return results
+    except Exception:
+        return []
+
+
+def fetch_coinbase_candles(
+    product_id: str,
+    start,
+    end,
+    granularity: str = "ONE_DAY",
+    api_key: str = "",
+    api_secret: str = "",
+) -> pd.DataFrame:
+    """
+    Fetch OHLCV candles from Coinbase for a futures product.
+    Uses public market data endpoint (no auth required).
+    Returns DataFrame with columns: Open, High, Low, Close, Volume
+    """
+    import requests
+    import time as _time
+
+    # Coinbase returns max 350 candles per request — paginate if needed
+    gran_seconds = {
+        "ONE_HOUR":  3600,
+        "ONE_DAY":   86400,
+    }.get(granularity, 86400)
+
+    # Convert dates to unix timestamps
+    if hasattr(start, "timetuple"):
+        start_ts = int(_time.mktime(start.timetuple()))
+    else:
+        start_ts = int(pd.Timestamp(start).timestamp())
+    if hasattr(end, "timetuple"):
+        end_ts = int(_time.mktime(end.timetuple()))
+    else:
+        end_ts = int(pd.Timestamp(end).timestamp())
+
+    all_candles = []
+    chunk_end = end_ts
+
+    # Paginate backwards — each chunk max 350 candles
+    max_candles = 350
+    chunk_size  = gran_seconds * max_candles
+
+    while chunk_end > start_ts:
+        chunk_start = max(start_ts, chunk_end - chunk_size)
+        try:
+            url = f"https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/candles"
+            r = requests.get(url, params={
+                "start":       str(chunk_start),
+                "end":         str(chunk_end),
+                "granularity": granularity,
+                "limit":       350,
+            }, timeout=10)
+            if r.status_code != 200:
+                break
+            candles = r.json().get("candles", [])
+            if not candles:
+                break
+            all_candles.extend(candles)
+        except Exception:
+            break
+        chunk_end = chunk_start
+        if chunk_end <= start_ts:
+            break
+
+    if not all_candles:
+        return pd.DataFrame()
+
+    # Build DataFrame
+    rows = []
+    for c in all_candles:
+        try:
+            ts    = int(c.get("start", 0))
+            rows.append({
+                "ts":     ts,
+                "Open":   float(c.get("open",  0)),
+                "High":   float(c.get("high",  0)),
+                "Low":    float(c.get("low",   0)),
+                "Close":  float(c.get("close", 0)),
+                "Volume": float(c.get("volume", 0)),
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.tz_localize(None)
+    df = df.drop(columns=["ts"]).set_index("Date")
+    df = df[~df.index.duplicated(keep="last")]
+    df = df.sort_index()
+    df = df[(df["Close"] > 0) & (df["Open"] > 0)]
+    return df
+
+
+# ─────────────────────────────────────────────────────────────
 # Pobieranie danych
 # ─────────────────────────────────────────────────────────────
 
