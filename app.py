@@ -278,9 +278,6 @@ with st.sidebar:
             st.warning("No contract data available for this instrument.")
             symbol = COMMODITY_SYMBOLS[commodity_name]
         else:
-            # Cache contract list per commodity — only refetch when commodity changes
-            # This prevents the list from refreshing on every rerun (date change etc.)
-            # which caused the selectbox to reset to index=0
             cache_key = f"contracts_{commodity_name}"
             if cache_key not in st.session_state:
                 with st.spinner("Loading available contracts..."):
@@ -292,11 +289,9 @@ with st.sidebar:
                 st.warning("No active contracts found. Using continuous contract.")
                 symbol = COMMODITY_SYMBOLS[commodity_name]
             else:
-                # Build symbol list (stable — not dependent on prices which change)
                 contract_symbols = [c["symbol"] for c in contracts]
                 contract_labels  = [f"{c['name']}  |  exp {fmt_date(c['expiry'])}" for c in contracts]
 
-                # Restore previously selected symbol if it exists in current list
                 prev_sym = st.session_state.get(f"selected_contract_{commodity_name}", contract_symbols[0])
                 default_idx = contract_symbols.index(prev_sym) if prev_sym in contract_symbols else 0
 
@@ -308,7 +303,6 @@ with st.sidebar:
                     label_visibility="collapsed",
                     key=f"contract_sel_{commodity_name}",
                 )
-                # Save selection by symbol (stable) not label (changes with price)
                 selected = contracts[selected_idx]
                 symbol = selected["symbol"]
                 st.session_state[f"selected_contract_{commodity_name}"] = symbol
@@ -319,22 +313,20 @@ with st.sidebar:
                 unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
                 st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
 
-            # Refresh button — forces re-fetch of contract list
             if st.button("🔄 Refresh contract list", key="refresh_contracts", use_container_width=True):
                 if cache_key in st.session_state:
                     del st.session_state[cache_key]
                 st.rerun()
 
-        # Auto-detect point_value — runs for BOTH Continuous AND Specific month
-        # Must be outside the if/else contract_mode block
-        _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
-        if _ci:
-            point_value = _ci["tick_value"] / _ci["tick"]
-        else:
-            point_value = 1.0
-
-        st.caption(f"Point value: **{point_value:.0f} $/pt**")
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ── Auto-detect point_value ── OUTSIDE both if/else blocks (4 spaces indent)
+    # Runs for BOTH Continuous and Specific month
+    _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
+    if _ci:
+        point_value = _ci["tick_value"] / _ci["tick"]
+    else:
+        point_value = 1.0
+    st.caption(f"Point value: **{point_value:.0f} $/pt**")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Timeframe ────────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Timeframe</div>', unsafe_allow_html=True)
