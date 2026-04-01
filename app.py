@@ -267,66 +267,65 @@ with st.sidebar:
         # ── YAHOO FINANCE path ───────────────────────────────
         commodity_name = st.selectbox("Commodity", options=list(COMMODITY_SYMBOLS.keys()), index=0, label_visibility="collapsed")
 
-    contract_mode = st.radio("Contract type", ["Continuous (=F)", "Specific month"], horizontal=True, label_visibility="collapsed")
+        contract_mode = st.radio("Contract type", ["Continuous (=F)", "Specific month"], horizontal=True, label_visibility="collapsed")
 
-    if contract_mode == "Continuous (=F)":
-        symbol = COMMODITY_SYMBOLS[commodity_name]
-        st.caption(f"Symbol: `{symbol}` — auto rollover to front month")
-    else:
-        contract_info = COMMODITY_CONTRACT_INFO.get(commodity_name)
-        if contract_info is None:
-            st.warning("No contract data available for this instrument.")
+        if contract_mode == "Continuous (=F)":
             symbol = COMMODITY_SYMBOLS[commodity_name]
+            st.caption(f"Symbol: `{symbol}` — auto rollover to front month")
         else:
-            cache_key = f"contracts_{commodity_name}"
-            if cache_key not in st.session_state:
-                with st.spinner("Loading available contracts..."):
-                    st.session_state[cache_key] = get_available_contracts(commodity_name, years_ahead=2)
-
-            contracts = st.session_state[cache_key]
-
-            if not contracts:
-                st.warning("No active contracts found. Using continuous contract.")
+            contract_info = COMMODITY_CONTRACT_INFO.get(commodity_name)
+            if contract_info is None:
+                st.warning("No contract data available for this instrument.")
                 symbol = COMMODITY_SYMBOLS[commodity_name]
             else:
-                contract_symbols = [c["symbol"] for c in contracts]
-                contract_labels  = [f"{c['name']}  |  exp {fmt_date(c['expiry'])}" for c in contracts]
+                cache_key = f"contracts_{commodity_name}"
+                if cache_key not in st.session_state:
+                    with st.spinner("Loading available contracts..."):
+                        st.session_state[cache_key] = get_available_contracts(commodity_name, years_ahead=2)
 
-                prev_sym = st.session_state.get(f"selected_contract_{commodity_name}", contract_symbols[0])
-                default_idx = contract_symbols.index(prev_sym) if prev_sym in contract_symbols else 0
+                contracts = st.session_state[cache_key]
 
-                selected_idx = st.selectbox(
-                    "Select contract",
-                    options=range(len(contract_labels)),
-                    format_func=lambda i: contract_labels[i],
-                    index=default_idx,
-                    label_visibility="collapsed",
-                    key=f"contract_sel_{commodity_name}",
-                )
-                selected = contracts[selected_idx]
-                symbol = selected["symbol"]
-                st.session_state[f"selected_contract_{commodity_name}"] = symbol
+                if not contracts:
+                    st.warning("No active contracts found. Using continuous contract.")
+                    symbol = COMMODITY_SYMBOLS[commodity_name]
+                else:
+                    contract_symbols = [c["symbol"] for c in contracts]
+                    contract_labels  = [f"{c['name']}  |  exp {fmt_date(c['expiry'])}" for c in contracts]
 
-                ci = COMMODITY_CONTRACT_INFO[commodity_name]
-                st.caption(f"Symbol: `{symbol}`")
-                st.caption(f"Expires: {fmt_date(selected['expiry'])}")
-                unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
-                st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
+                    prev_sym = st.session_state.get(f"selected_contract_{commodity_name}", contract_symbols[0])
+                    default_idx = contract_symbols.index(prev_sym) if prev_sym in contract_symbols else 0
 
-            if st.button("🔄 Refresh contract list", key="refresh_contracts", use_container_width=True):
-                if cache_key in st.session_state:
-                    del st.session_state[cache_key]
-                st.rerun()
+                    selected_idx = st.selectbox(
+                        "Select contract",
+                        options=range(len(contract_labels)),
+                        format_func=lambda i: contract_labels[i],
+                        index=default_idx,
+                        label_visibility="collapsed",
+                        key=f"contract_sel_{commodity_name}",
+                    )
+                    selected = contracts[selected_idx]
+                    symbol = selected["symbol"]
+                    st.session_state[f"selected_contract_{commodity_name}"] = symbol
 
-    # ── Auto-detect point_value ── OUTSIDE both if/else blocks (4 spaces indent)
-    # Runs for BOTH Continuous and Specific month
-    _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
-    if _ci:
-        point_value = _ci["tick_value"] / _ci["tick"]
-    else:
-        point_value = 1.0
-    st.caption(f"Point value: **{point_value:.0f} $/pt**")
-    st.markdown('</div>', unsafe_allow_html=True)
+                    ci = COMMODITY_CONTRACT_INFO[commodity_name]
+                    st.caption(f"Symbol: `{symbol}`")
+                    st.caption(f"Expires: {fmt_date(selected['expiry'])}")
+                    unit_part = ci['unit'].split('/')[1] if '/' in ci['unit'] else 'units'
+                    st.caption(f"Tick: {ci['tick']} = ${ci['tick_value']}  |  Size: {ci['contract_size']:,} {unit_part}")
+
+                if st.button("🔄 Refresh contract list", key="refresh_contracts", use_container_width=True):
+                    if cache_key in st.session_state:
+                        del st.session_state[cache_key]
+                    st.rerun()
+
+        # Auto-detect point_value — Yahoo Finance only
+        _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
+        if _ci:
+            point_value = _ci["tick_value"] / _ci["tick"]
+        else:
+            point_value = 1.0
+        st.caption(f"Point value: **{point_value:.0f} $/pt**")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Timeframe ────────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Timeframe</div>', unsafe_allow_html=True)
