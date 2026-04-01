@@ -105,8 +105,9 @@ OPT_COL_TIPS = {
     "Commission":  "Total commission cost. Formula: Total ops × commission/side. Red because it directly reduces your PnL.",
     "Max contr.":  "Peak simultaneous open contracts — occurs at deepest price drop. Determines max capital required.",
     "Max capital": "Real capital needed = margin + max unrealized floating loss at worst intrabar price. Same formula as 'Max capital (real)' in the metrics above.",
-    "Lowest balance (Close)":   "Lowest account balance recorded at any bar's Close price — same values as the chart line. Formula: realized PnL + unrealized PnL at Close. Date and open contracts shown in sub-text.",
-    "Total needed at worst day": "Total capital required on the worst Close day = margin for open contracts + loss cover (if balance negative). Formula: contracts × margin + max(0, -balance).",
+    "Bal@peak contr.": "Account balance (realized + unrealized at Close) on the day with the most contracts open. Same as 'Balance at peak contracts' metric card.",
+    "Lowest bal.":     "Lowest account balance at Close across the entire backtest period. Same as 'Lowest balance (Close)' metric card.",
+    "Total needed":    "Total capital needed on the worst day = margin for open contracts + loss cover. Formula: contracts × margin + max(0, -lowest_balance).",
     "Avg days":    "Average calendar days from entry to TP hit. Low = fast turnover. High = capital tied up for longer.",
 }
 
@@ -132,9 +133,12 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
         rb_style = f"display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:0.75rem;font-weight:700;{rb_bg};color:{rb_col}"
         pnl = row["PnL ($)"]
         pnl_col = "#34d399" if pnl >= 0 else "#f87171"
-        comm_val = row["Total comm ($)"]     if "Total comm ($)"     in row.index else 0.0
-        bal_worst = row["Balance at Low (intraday)"]  if "Balance at Low (intraday)"   in row.index else 0.0
-        bal_worst_col = "#34d399" if bal_worst >= 0 else "#f87171"
+        comm_val  = row["Total comm ($)"]  if "Total comm ($)"  in row.index else 0.0
+        bal_peak  = row["Bal@peak contr."] if "Bal@peak contr." in row.index else 0.0
+        bal_low   = row["Lowest bal."]     if "Lowest bal."     in row.index else 0.0
+        tot_need  = row["Total needed"]    if "Total needed"    in row.index else 0
+        bal_peak_col = "#34d399" if bal_peak >= 0 else "#f87171"
+        bal_low_col  = "#34d399" if bal_low  >= 0 else "#f87171"
         row_bg = {1: "background:rgba(251,191,36,0.08)", 2: "background:rgba(148,163,184,0.06)", 3: "background:rgba(205,124,47,0.06)"}.get(rank, "")
         rows_html += f"""<tr style="{row_bg}">
             <td style="{S_TD_CTR}"><span style="{rb_style}">{rank}</span></td>
@@ -147,13 +151,16 @@ def render_opt_table(df: pd.DataFrame, top_n: int = 20):
             <td style="{S_TD};color:#f87171">${comm_val:,.2f}</td>
             <td style="{S_TD}">{row['Max contr.']}</td>
             <td style="{S_TD}">${row['Max capital ($)']:,}</td>
-            <td style="{S_TD};color:{bal_worst_col};font-weight:700">${bal_worst:,.2f}</td>
+            <td style="{S_TD};color:{bal_peak_col};font-weight:700">${bal_peak:,.2f}</td>
+            <td style="{S_TD};color:{bal_low_col};font-weight:700">${bal_low:,.2f}</td>
+            <td style="{S_TD};color:#f87171">${tot_need:,}</td>
             <td style="{S_TD}">{row['Avg days']} d</td>
         </tr>"""
     html = f"""<table style="{S_TABLE}"><thead><tr>
             {th("#")}{th("Step")}{th("TP")}{th("PnL")}{th("Buys")}{th("Sells (TP)")}{th("Open")}
             {th("Commission","#f87171")}
-            {th("Max contr.")}{th("Max capital")}{th("Balance at Low (intraday)")}{th("Avg days")}
+            {th("Max contr.")}{th("Max capital")}
+            {th("Bal@peak contr.")}{th("Lowest bal.")}{th("Total needed","#f87171")}{th("Avg days")}
         </tr></thead><tbody>{rows_html}</tbody></table>"""
     st.markdown(html, unsafe_allow_html=True)
 
@@ -1043,8 +1050,10 @@ with strategy_tab1:
                                 "Total comm ($)":  round(comm_cost, 2),
                                  "Max contr.":      r.max_concurrent,
                                  "Max capital ($)": int(r.max_capital_with_unrealized),
-                                 "Balance at Low (intraday)": round(r.balance_at_max_capital, 2),
-                                "Avg days":        int(r.avg_days_open),
+                                 "Bal@peak contr.": round(float(r.balance_curve.loc[r.daily_open_contracts.idxmax()]) if r.max_concurrent > 0 else 0.0, 2),
+                                 "Lowest bal.":     round(float(r.balance_curve.min()), 2),
+                                 "Total needed":    int(int(r.daily_open_contracts.loc[r.balance_curve.idxmin()]) * margin_per_contract_disp + max(0.0, -float(r.balance_curve.min()))),
+                                 "Avg days":        int(r.avg_days_open),
                             })
                             done = idx_s * len(tps) + idx_t + 1
                             prog.progress(done / total_runs, text=f"{done}/{total_runs} combinations...")
@@ -1104,7 +1113,9 @@ with strategy_tab1:
                             "Sort by",
                             options=[
                                 "PnL ($)",
-                                "Balance at Low (intraday)",
+                                "Bal@peak contr.",
+                                "Lowest bal.",
+                                "Total needed",
                                 "Max capital ($)",
                                 "Commission",
                                 "Entries",
@@ -1134,7 +1145,9 @@ with strategy_tab1:
                     # Map display sort column to actual df column
                     sort_col_map = {
                         "PnL ($)":          "PnL ($)",
-                        "Balance at Low (intraday)": "Balance at Low (intraday)",
+                        "Bal@peak contr.":  "Bal@peak contr.",
+                        "Lowest bal.":      "Lowest bal.",
+                        "Total needed":     "Total needed",
                         "Max capital ($)":  "Max capital ($)",
                         "Commission":       "Total comm ($)",
                         "Entries":          "Entries",
@@ -1142,11 +1155,11 @@ with strategy_tab1:
                         "Avg days":         "Avg days",
                         "Max contr.":       "Max contr.",
                     }
-                    # For most metrics "best" = highest value (PnL, closed)
-                    # For cost metrics "best" = lowest value (commission, capital, days)
                     ascending_when_best = {
                         "PnL ($)":          False,
-                        "Balance at Low (intraday)": False,
+                        "Bal@peak contr.":  False,
+                        "Lowest bal.":      False,
+                        "Total needed":     True,
                         "Max capital ($)":  True,
                         "Total comm ($)":   True,
                         "Entries":          False,
