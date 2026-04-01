@@ -520,6 +520,14 @@ with strategy_tab1:
         direction_disp           = st.session_state.get("bt_direction", "Long")
         is_long_disp             = direction_disp == "Long"
 
+        # Check if point_value in session_state matches current instrument specs
+        # If mismatch (e.g. instrument was added to CONTRACT_INFO after last run)
+        # warn user to re-run backtest
+        current_pv = point_value  # from sidebar, always up-to-date
+        if abs(current_pv - pv) > 0.01 and pv == 1.0:
+            st.warning(f"⚠️ Point value mismatch detected. Stored: {pv:.0f} $/pt, Current: {current_pv:.0f} $/pt. Please **Re-run backtest** to recalculate with correct point value.")
+            pv = current_pv  # use correct value for display
+
         pnl_currency = "USD"
         pv_info = f"point value: {pv:.0f} $/pt (auto-detected)"
         comm = st.session_state.get("bt_commission", 0.0)
