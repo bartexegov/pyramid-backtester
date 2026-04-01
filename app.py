@@ -325,13 +325,15 @@ with st.sidebar:
                     del st.session_state[cache_key]
                 st.rerun()
 
-        # Auto-detect point_value from contract specs
+        # Auto-detect point_value — runs for BOTH Continuous AND Specific month
+        # Must be outside the if/else contract_mode block
         _ci = COMMODITY_CONTRACT_INFO.get(commodity_name)
         if _ci:
             point_value = _ci["tick_value"] / _ci["tick"]
         else:
             point_value = 1.0
 
+        st.caption(f"Point value: **{point_value:.0f} $/pt**")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Timeframe ────────────────────────────────────────────
