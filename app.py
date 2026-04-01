@@ -179,6 +179,13 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # Default values — overridden below by each data source path
+    point_value         = 1.0
+    symbol              = ""
+    commodity_name      = ""
+    coinbase_product_id = None
+    coinbase_point_value = 1.0
+
     # ── Data source ─────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Data source</div>', unsafe_allow_html=True)
     data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
