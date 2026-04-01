@@ -606,7 +606,7 @@ with strategy_tab1:
 
             # ── Charts ────────────────────────────────────────
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            chart_tab1, chart_tab2 = st.tabs(["📈 Price + signals", "Open contracts"])
+            chart_tab1, chart_tab2, chart_tab3 = st.tabs(["📈 Price + signals", "Open contracts", "🤖 IBKR Script"])
 
             with chart_tab2:
                 fig_open = go.Figure()
@@ -1010,6 +1010,291 @@ with strategy_tab1:
                     zone_rows += f"<tr><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#e2e8f0;font-weight:700'>${z['price']:,.2f}</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#94a3b8'>${z['zone_low']:,.2f} – ${z['zone_high']:,.2f}</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b;color:#38bdf8;font-weight:600'>{z['volume_pct']:.1f}%</td><td style='padding:8px 12px;border-bottom:1px solid #1e293b'>{sig}</td></tr>"
                 st.markdown(f"<table style='width:100%;border-collapse:collapse;font-size:0.82rem'><thead><tr><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Price</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Zone range</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>% Vol</th><th style='padding:9px 12px;background:#0f172a;color:#64748b;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;text-align:left;border-bottom:1px solid #334155'>Signal</th></tr></thead><tbody>{zone_rows}</tbody></table>", unsafe_allow_html=True)
                 st.markdown(f"<div style='background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:16px;font-size:0.85rem;color:#93c5fd;line-height:1.7'><b style='color:#38bdf8'>💡 Tip:</b> Set <b>Entry threshold</b> in Strategy 1 to <b style='color:#34d399'>${va_low:,.2f}</b> (Value Area Low) — historically cheap zone for {commodity_name}.</div>", unsafe_allow_html=True)
+
+            # ── IBKR Script tab ──────────────────────────────────
+            with chart_tab3:
+                _thr  = result.params.get("entry_threshold", entry_threshold_disp)
+                _step = result.params.get("pyramid_step", st.session_state.get("bt_step", 5.0))
+                _tp   = result.params.get("take_profit", st.session_state.get("bt_tp", 5.0))
+                _pv   = result.params.get("point_value", 1.0)
+                _dir  = st.session_state.get("bt_direction", "Long")
+                _sym  = st.session_state.get("bt_symbol", commodity_name_disp)
+                _tf   = st.session_state.get("bt_tf_label", "Daily (1d)")
+                _comm = result.params.get("commission_per_side", 0.0)
+
+                # Map commodity to IBKR symbol/exchange/currency
+                ibkr_map = {
+                    "Corn (ZC)":          ("ZC", "CBOT", "USD", "FUT", "cents/bushel"),
+                    "Wheat (ZW)":         ("ZW", "CBOT", "USD", "FUT", "cents/bushel"),
+                    "Soybeans (ZS)":      ("ZS", "CBOT", "USD", "FUT", "cents/bushel"),
+                    "Oats (ZO)":          ("ZO", "CBOT", "USD", "FUT", "cents/bushel"),
+                    "Rough Rice (ZR)":    ("ZR", "CBOT", "USD", "FUT", "cents/cwt"),
+                    "Live Cattle (LE)":   ("LE", "CME",  "USD", "FUT", "cents/lb"),
+                    "Lean Hogs (HE)":     ("HE", "CME",  "USD", "FUT", "cents/lb"),
+                    "Feeder Cattle (FC)": ("GF", "CME",  "USD", "FUT", "cents/lb"),
+                    "Sugar #11 (SB)":     ("SB", "NYBOT","USD", "FUT", "cents/lb"),
+                    "Cotton (CT)":        ("CT", "NYBOT","USD", "FUT", "cents/lb"),
+                    "Coffee (KC)":        ("KC", "NYBOT","USD", "FUT", "cents/lb"),
+                    "Cocoa (CC)":         ("CC", "NYBOT","USD", "FUT", "USD/ton"),
+                    "Orange Juice (OJ)":  ("OJ", "NYBOT","USD", "FUT", "cents/lb"),
+                    "Crude Oil (CL)":     ("CL", "NYMEX","USD", "FUT", "USD/bbl"),
+                    "Natural Gas (NG)":   ("NG", "NYMEX","USD", "FUT", "USD/MMBtu"),
+                    "Gold (GC)":          ("GC", "COMEX","USD", "FUT", "USD/oz"),
+                    "Silver (SI)":        ("SI", "COMEX","USD", "FUT", "cents/oz"),
+                    "Palladium (PA)":     ("PA", "COMEX","USD", "FUT", "USD/oz"),
+                    "Platinum (PL)":      ("PL", "NYMEX","USD", "FUT", "USD/oz"),
+                    "Copper (HG)":        ("HG", "COMEX","USD", "FUT", "cents/lb"),
+                    "S&P 500 (ES)":       ("ES", "CME",  "USD", "FUT", "USD/pt"),
+                    "Nasdaq (NQ)":        ("NQ", "CME",  "USD", "FUT", "USD/pt"),
+                }
+                ibkr_sym, ibkr_exch, ibkr_ccy, ibkr_stype, ibkr_unit = ibkr_map.get(
+                    _sym, ("ZC", "CBOT", "USD", "FUT", "cents/bushel")
+                )
+                action_entry = "BUY" if _dir == "Long" else "SELL"
+                action_exit  = "SELL" if _dir == "Long" else "BUY"
+                cmp_op       = "<" if _dir == "Long" else ">"
+                add_cmp      = "<=" if _dir == "Long" else ">="
+                price_move   = f"drops" if _dir == "Long" else "rises"
+
+                ibkr_script = f'''#!/usr/bin/env python3
+"""
+IBKR Pyramid {_dir} Strategy — Auto-generated by Pyramid Backtester
+Instrument : {_sym} ({ibkr_sym}) on {ibkr_exch}
+Direction  : {_dir}
+Timeframe  : {_tf}
+Parameters : Threshold={_thr}  Step={_step}  TP={_tp}  Commission={_comm}/side
+
+HOW TO USE:
+1. Install: pip install ib_insync
+2. Open TWS or IB Gateway on your computer
+3. Enable API: TWS → Edit → Global Config → API → Settings → Enable ActiveX and Socket Clients
+4. Set port 7497 (paper) or 7496 (live)
+5. Run this script: python ibkr_strategy.py
+6. Press Ctrl+C to stop
+
+WARNING: Test with paper trading first! Set PAPER_TRADING = True below.
+"""
+
+from ib_insync import IB, Future, MarketOrder, LimitOrder, util
+import time
+import logging
+from datetime import datetime
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+log = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+# SETTINGS — edit these if needed
+# ─────────────────────────────────────────────
+PAPER_TRADING   = True          # True = paper (port 7497), False = live (port 7496)
+HOST            = "127.0.0.1"
+PORT            = 7497 if PAPER_TRADING else 7496
+CLIENT_ID       = 1
+
+# Contract
+SYMBOL          = "{ibkr_sym}"
+EXCHANGE        = "{ibkr_exch}"
+CURRENCY        = "{ibkr_ccy}"
+EXPIRY          = ""            # e.g. "20260600" for Jun-2026, leave "" for front month
+
+# Strategy parameters (from backtester)
+DIRECTION       = "{_dir}"      # "Long" or "Short"
+ENTRY_THRESHOLD = {_thr}        # First entry when price {cmp_op} this value ({ibkr_unit})
+PYRAMID_STEP    = {_step}       # Add 1 contract every X points drop/rise
+TAKE_PROFIT     = {_tp}         # TP per contract: X points above/below entry
+QTY_PER_ENTRY   = 1             # Contracts per entry level
+CHECK_INTERVAL  = 10            # Seconds between price checks
+
+# ─────────────────────────────────────────────
+# STRATEGY STATE
+# ─────────────────────────────────────────────
+open_entries    = []   # list of (entry_price, tp_order)
+last_entry_price = None
+
+def get_contract():
+    """Define the futures contract."""
+    c = Future(symbol=SYMBOL, exchange=EXCHANGE, currency=CURRENCY)
+    if EXPIRY:
+        c.lastTradeDateOrContractMonth = EXPIRY
+    return c
+
+def get_current_price(ib, contract):
+    """Get current market price."""
+    ticker = ib.reqMktData(contract, "", False, False)
+    ib.sleep(2)
+    price = ticker.last or ticker.close or ticker.bid
+    ib.cancelMktData(contract)
+    return float(price) if price and price > 0 else None
+
+def place_entry(ib, contract, entry_price):
+    """Place a market entry order and register TP."""
+    global last_entry_price
+
+    log.info(f"[{DIRECTION}] Placing entry #{len(open_entries)+1} @ ~{{entry_price:.4f}}")
+
+    # Market order for entry
+    entry_order = MarketOrder(action="{action_entry}", totalQuantity=QTY_PER_ENTRY)
+    entry_trade = ib.placeOrder(contract, entry_order)
+    ib.sleep(2)
+
+    # Calculate TP price
+    if DIRECTION == "Long":
+        tp_price = entry_price + TAKE_PROFIT
+    else:
+        tp_price = entry_price - TAKE_PROFIT
+
+    # Limit order for Take Profit
+    tp_order = LimitOrder(action="{action_exit}", totalQuantity=QTY_PER_ENTRY, lmtPrice=round(tp_price, 4))
+    tp_trade = ib.placeOrder(contract, tp_order)
+    ib.sleep(1)
+
+    open_entries.append({{
+        "entry_price": entry_price,
+        "tp_price":    tp_price,
+        "tp_order_id": tp_trade.order.orderId,
+        "filled":      False,
+    }})
+    last_entry_price = entry_price
+    log.info(f"  Entry placed. TP set at {{tp_price:.4f}}")
+
+def check_tp_fills(ib):
+    """Check if any TP orders have been filled — remove from open list."""
+    still_open = []
+    for e in open_entries:
+        order_status = ib.openTrades()
+        tp_still_open = any(t.order.orderId == e["tp_order_id"] for t in order_status)
+        if tp_still_open:
+            still_open.append(e)
+        else:
+            pnl = (e["tp_price"] - e["entry_price"]) if DIRECTION == "Long" else (e["entry_price"] - e["tp_price"])
+            log.info(f"[TP HIT] Entry {{e['entry_price']:.4f}} → TP {{e['tp_price']:.4f}} | PnL ~{{pnl:.4f}} pts")
+    return still_open
+
+def run_strategy():
+    """Main strategy loop."""
+    global open_entries, last_entry_price
+
+    ib = IB()
+    log.info(f"Connecting to IBKR ({'PAPER' if PAPER_TRADING else 'LIVE'}) on {{HOST}}:{{PORT}}")
+    ib.connect(HOST, PORT, clientId=CLIENT_ID)
+    log.info("Connected!")
+
+    contract = get_contract()
+    ib.qualifyContracts(contract)
+    log.info(f"Contract: {{contract}}")
+
+    log.info("=" * 60)
+    log.info(f"Strategy: Pyramid {_dir}")
+    log.info(f"Instrument: {{SYMBOL}} on {{EXCHANGE}}")
+    log.info(f"Entry threshold: {{ENTRY_THRESHOLD}} ({ibkr_unit})")
+    log.info(f"Pyramid step:    {{PYRAMID_STEP}}")
+    log.info(f"Take Profit:     {{TAKE_PROFIT}}")
+    log.info("=" * 60)
+    log.info("Press Ctrl+C to stop")
+    log.info("")
+
+    try:
+        while True:
+            price = get_current_price(ib, contract)
+            if price is None:
+                log.warning("Could not get price, retrying...")
+                time.sleep(CHECK_INTERVAL)
+                continue
+
+            log.info(f"Price: {{price:.4f}} | Open entries: {{len(open_entries)}} | Last entry: {{last_entry_price}}")
+
+            # Check TP fills
+            open_entries = check_tp_fills(ib)
+            if not open_entries:
+                last_entry_price = None
+
+            # Entry logic
+            if DIRECTION == "Long":
+                # First entry: price drops below threshold
+                if not open_entries and price {cmp_op} ENTRY_THRESHOLD:
+                    place_entry(ib, contract, price)
+
+                # Pyramid: price drops another STEP below last entry
+                elif open_entries and last_entry_price is not None:
+                    next_trigger = last_entry_price - PYRAMID_STEP
+                    if price {add_cmp} next_trigger:
+                        place_entry(ib, contract, price)
+
+            else:  # Short
+                # First entry: price rises above threshold
+                if not open_entries and price {cmp_op} ENTRY_THRESHOLD:
+                    place_entry(ib, contract, price)
+
+                # Pyramid: price rises another STEP above last entry
+                elif open_entries and last_entry_price is not None:
+                    next_trigger = last_entry_price + PYRAMID_STEP
+                    if price {add_cmp} next_trigger:
+                        place_entry(ib, contract, price)
+
+            time.sleep(CHECK_INTERVAL)
+
+    except KeyboardInterrupt:
+        log.info("")
+        log.info("Stopped by user.")
+        log.info(f"Open entries at stop: {{len(open_entries)}}")
+        for e in open_entries:
+            log.info(f"  Entry @ {{e['entry_price']:.4f}}  TP @ {{e['tp_price']:.4f}}")
+
+    finally:
+        ib.disconnect()
+        log.info("Disconnected from IBKR.")
+
+if __name__ == "__main__":
+    util.startLoop()
+    run_strategy()
+'''
+
+                st.markdown("""
+                <div style='background:#1e293b;border:1px solid #334155;border-radius:10px;padding:16px;margin-bottom:16px'>
+                    <div style='font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:8px'>🤖 IBKR Auto-Trading Script</div>
+                    <div style='font-size:0.82rem;color:#94a3b8;line-height:1.6'>
+                        This script monitors live prices through Interactive Brokers and automatically places
+                        buy/sell orders according to your backtest parameters.<br>
+                        <b style='color:#38bdf8'>Requirements:</b> IBKR account + TWS or IB Gateway running on your computer.
+                        <b style='color:#fbbf24'>Always test with paper trading first!</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Parameter summary
+                p_cols = st.columns(4)
+                with p_cols[0]:
+                    st.metric("Direction", _dir)
+                with p_cols[1]:
+                    st.metric("Threshold", f"{_thr}")
+                with p_cols[2]:
+                    st.metric("Step", f"{_step}")
+                with p_cols[3]:
+                    st.metric("Take Profit", f"{_tp}")
+
+                st.markdown("---")
+                st.caption("Copy the script below, save as `ibkr_strategy.py` and run with Python.")
+                st.code(ibkr_script, language="python")
+
+                # Download button
+                st.download_button(
+                    label="⬇️ Download ibkr_strategy.py",
+                    data=ibkr_script,
+                    file_name="ibkr_strategy.py",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+
+                st.markdown("""
+                <div style='background:#0c2541;border:1px solid #0369a1;border-radius:8px;padding:14px 18px;margin-top:8px;font-size:0.82rem;color:#93c5fd;line-height:1.7'>
+                    <b style='color:#38bdf8'>Quick start:</b><br>
+                    1. pip install ib_insync<br>
+                    2. Open TWS → Edit → Global Config → API → Enable Socket Client → Port 7497<br>
+                    3. python ibkr_strategy.py<br>
+                    4. Watch the terminal — it prints every entry and TP fill<br>
+                    5. Press Ctrl+C to stop at any time
+                </div>
+                """, unsafe_allow_html=True)
 
             # ── Optimization ────────────────────────────────────
             if optimize_enabled:
