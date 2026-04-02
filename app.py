@@ -10,7 +10,7 @@ import plotly.express as px
 from datetime import date, timedelta
 import collections
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile, fetch_coinbase_products, fetch_coinbase_candles, COINBASE_FUTURES, COINBASE_GRANULARITY
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile, fetch_coinbase_products, fetch_coinbase_candles, fetch_coinbase_spot_candles, COINBASE_FUTURES, COINBASE_GRANULARITY, COINBASE_SPOT_TOP50
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -188,17 +188,35 @@ with st.sidebar:
 
     # ── Data source ─────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Data source</div>', unsafe_allow_html=True)
-    data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
+    data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Coinbase (Crypto Spot)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Instrument ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Instrument</div>', unsafe_allow_html=True)
 
-    # ── COINBASE path ────────────────────────────────────────
-    coinbase_product_id = None
+    # ── COINBASE paths ───────────────────────────────────────
+    coinbase_product_id  = None
     coinbase_point_value = 1.0
+    coinbase_spot_id     = None
 
-    if data_source == "Coinbase (Crypto Futures)":
+    if data_source == "Coinbase (Crypto Spot)":
+        spot_names  = [f"{name} ({pid})" for name, pid in COINBASE_SPOT_TOP50]
+        spot_ids    = [pid for _, pid in COINBASE_SPOT_TOP50]
+        prev_spot   = st.session_state.get("cb_spot_selected", spot_ids[0])
+        def_spot    = spot_ids.index(prev_spot) if prev_spot in spot_ids else 0
+        sel_spot    = st.selectbox("Crypto asset", options=range(len(spot_names)),
+                        format_func=lambda i: spot_names[i], index=def_spot,
+                        label_visibility="collapsed", key="cb_spot_sel")
+        coinbase_spot_id = spot_ids[sel_spot]
+        st.session_state["cb_spot_selected"] = coinbase_spot_id
+        symbol         = coinbase_spot_id
+        commodity_name = coinbase_spot_id.replace("-USD", "")
+        point_value    = 1.0  # spot: 1 USD price move = $1 per coin held
+        st.caption(f"Symbol: `{coinbase_spot_id}` — continuous spot price")
+        st.caption("Point value: **$1** per coin per $1 price move (spot, no leverage)")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    elif data_source == "Coinbase (Crypto Futures)":
         # Load Coinbase API keys from Streamlit secrets
         try:
             cb_key    = st.secrets["coinbase"]["api_key"]
@@ -457,6 +475,9 @@ with st.container():
                     except Exception:
                         cb_key = cb_secret = ""
                     df_new = fetch_coinbase_candles(coinbase_product_id, start=start_date, end=end_date, granularity=gran, api_key=cb_key, api_secret=cb_secret)
+                elif data_source == "Coinbase (Crypto Spot)" and coinbase_spot_id:
+                    gran = COINBASE_GRANULARITY.get(tf_interval, "ONE_DAY")
+                    df_new = fetch_coinbase_spot_candles(coinbase_spot_id, start=start_date, end=end_date, granularity=gran)
                 else:
                     df_new = fetch_data(symbol, start=start_date, end=end_date, interval=tf_interval)
             except Exception as e:
@@ -531,7 +552,7 @@ with st.container():
         bar_label = {"1h": "bars (1h)", "1d": "sessions", "1wk": "weeks"}.get(tf_interval_disp, "bars")
 
         # Warn if Coinbase returned much less data than requested
-        if data_source == "Coinbase (Crypto Futures)" and len(df) < 30:
+        if data_source in ("Coinbase (Crypto Futures)", "Coinbase (Crypto Spot)") and len(df) < 30:
             st.warning(f"⚠️ Only {len(df)} bars returned. Coinbase futures contracts have limited history — only data since contract launch date is available.")
 
         st.markdown(

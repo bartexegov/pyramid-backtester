@@ -244,6 +244,150 @@ COINBASE_GRANULARITY = {
     "1wk": "ONE_DAY",   # weekly not supported — use daily
 }
 
+# Top 50 Coinbase spot pairs by volume (USD pairs, sorted by 24h volume)
+COINBASE_SPOT_TOP50 = [
+    ("Bitcoin",        "BTC-USD"),
+    ("Ethereum",       "ETH-USD"),
+    ("Solana",         "SOL-USD"),
+    ("XRP",            "XRP-USD"),
+    ("Dogecoin",       "DOGE-USD"),
+    ("Cardano",        "ADA-USD"),
+    ("Chainlink",      "LINK-USD"),
+    ("Sui",            "SUI-USD"),
+    ("Litecoin",       "LTC-USD"),
+    ("Stellar",        "XLM-USD"),
+    ("Uniswap",        "UNI-USD"),
+    ("Avalanche",      "AVAX-USD"),
+    ("Hedera",         "HBAR-USD"),
+    ("PEPE",           "PEPE-USD"),
+    ("Ondo",           "ONDO-USD"),
+    ("Bitcoin Cash",   "BCH-USD"),
+    ("Aave",           "AAVE-USD"),
+    ("BONK",           "BONK-USD"),
+    ("Sei",            "SEI-USD"),
+    ("Render",         "RENDER-USD"),
+    ("NEAR Protocol",  "NEAR-USD"),
+    ("Internet Comp.", "ICP-USD"),
+    ("Curve DAO",      "CRV-USD"),
+    ("BNB",            "BNB-USD"),
+    ("Ethena",         "ENA-USD"),
+    ("Dash",           "DASH-USD"),
+    ("Polkadot",       "DOT-USD"),
+    ("Shiba Inu",      "SHIB-USD"),
+    ("Arbitrum",       "ARB-USD"),
+    ("Optimism",       "OP-USD"),
+    ("Injective",      "INJ-USD"),
+    ("Aptos",          "APT-USD"),
+    ("Filecoin",       "FIL-USD"),
+    ("Toncoin",        "TON-USD"),
+    ("Fetch.ai",       "FET-USD"),
+    ("Sandbox",        "SAND-USD"),
+    ("Mana",           "MANA-USD"),
+    ("Gala",           "GALA-USD"),
+    ("Axie Infinity",  "AXS-USD"),
+    ("Flow",           "FLOW-USD"),
+    ("Maker",          "MKR-USD"),
+    ("Compound",       "COMP-USD"),
+    ("1inch",          "1INCH-USD"),
+    ("Zcash",          "ZEC-USD"),
+    ("Numeraire",      "NMR-USD"),
+    ("Loom Network",   "LOOM-USD"),
+    ("Band Protocol",  "BAND-USD"),
+    ("Civic",          "CVC-USD"),
+    ("Ankr",           "ANKR-USD"),
+    ("Storj",          "STORJ-USD"),
+]
+
+
+def fetch_coinbase_spot_candles(
+    product_id: str,
+    start,
+    end,
+    granularity: str = "ONE_DAY",
+) -> pd.DataFrame:
+    """
+    Fetch OHLCV candles from Coinbase SPOT market (e.g. BTC-USD).
+    spot = continuous price history, no expiry dates.
+    point_value = 1.0 (price in USD, 1 unit = 1 coin).
+    """
+    import requests
+    import time as _time
+
+    gran_seconds = {
+        "ONE_HOUR": 3600,
+        "ONE_DAY":  86400,
+    }.get(granularity, 86400)
+
+    if hasattr(start, "timetuple"):
+        start_ts = int(_time.mktime(start.timetuple()))
+    else:
+        start_ts = int(pd.Timestamp(start).timestamp())
+    if hasattr(end, "timetuple"):
+        end_ts = int(_time.mktime(end.timetuple()))
+    else:
+        end_ts = int(pd.Timestamp(end).timestamp())
+
+    all_candles = []
+    chunk_end   = end_ts
+    max_candles = 299  # stay safely under 300 limit
+    chunk_size  = gran_seconds * max_candles
+    empty_chunks = 0
+
+    while chunk_end > start_ts:
+        chunk_start = max(start_ts, chunk_end - chunk_size)
+        try:
+            url = f"https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/candles"
+            r = requests.get(url, params={
+                "start":       str(chunk_start),
+                "end":         str(chunk_end),
+                "granularity": granularity,
+                "limit":       max_candles,
+            }, timeout=10)
+            if r.status_code != 200:
+                break
+            candles = r.json().get("candles", [])
+            if not candles:
+                empty_chunks += 1
+                if empty_chunks >= 2:
+                    break
+            else:
+                empty_chunks = 0
+                all_candles.extend(candles)
+        except Exception:
+            break
+        chunk_end = chunk_start
+        if chunk_end <= start_ts:
+            break
+
+    if not all_candles:
+        return pd.DataFrame()
+
+    rows = []
+    for c in all_candles:
+        try:
+            ts = int(c.get("start", 0))
+            rows.append({
+                "ts":     ts,
+                "Open":   float(c.get("open",   0)),
+                "High":   float(c.get("high",   0)),
+                "Low":    float(c.get("low",    0)),
+                "Close":  float(c.get("close",  0)),
+                "Volume": float(c.get("volume", 0)),
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["Date"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.tz_localize(None)
+    df = df.drop(columns=["ts"]).set_index("Date")
+    df = df[~df.index.duplicated(keep="last")]
+    df = df.sort_index()
+    df = df[(df["Close"] > 0) & (df["Open"] > 0)]
+    return df
+
 
 def fetch_coinbase_products(api_key: str = "", api_secret: str = "") -> list:
     """
