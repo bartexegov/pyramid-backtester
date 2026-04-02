@@ -247,11 +247,18 @@ with st.sidebar:
                 key=f"cb_contract_sel_{selected_prefix}",
             )
             coinbase_product_id  = product_options[selected_cb_idx]
-            coinbase_point_value = COINBASE_FUTURES.get(selected_prefix, (selected_prefix, 1.0))[1]
+            selected_product     = prefix_products[selected_cb_idx]
+            # Read contract_size from API data (e.g. 0.1 for ET, 0.01 for BIT)
+            coinbase_point_value = selected_product.get("point_value", 1.0)
+            cb_contract_size     = selected_product.get("contract_size", 1.0)
+            cb_contract_unit     = selected_product.get("contract_unit", selected_prefix)
+            cb_group_desc        = selected_product.get("group_desc", "")
             st.session_state[f"cb_selected_{selected_prefix}"] = coinbase_product_id
 
             st.caption(f"Product: `{coinbase_product_id}`")
-            st.caption(f"Point value: ${coinbase_point_value} per unit")
+            if cb_group_desc:
+                st.caption(f"{cb_group_desc} · Contract size: {cb_contract_size} {cb_contract_unit}")
+            st.caption(f"Point value: **${coinbase_point_value}**/contract per $1 price move")
 
             if st.button("🔄 Refresh Coinbase products", key="refresh_cb", use_container_width=True):
                 if "coinbase_products" in st.session_state:

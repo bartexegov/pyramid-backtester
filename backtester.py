@@ -291,14 +291,27 @@ def fetch_coinbase_products(api_key: str = "", api_secret: str = "") -> list:
                 continue
 
             friendly = COINBASE_FUTURES.get(prefix, (prefix, 1.0))
+            # Read contract_size from API — this is the actual point value
+            # e.g. ET contract_size=0.1 means 1 USD price move = $0.10 per contract
+            future_details = p.get("future_product_details", {}) or {}
+            try:
+                contract_size = float(future_details.get("contract_size", 1.0) or 1.0)
+            except Exception:
+                contract_size = 1.0
+            contract_root = future_details.get("contract_root_unit", prefix)
+            group_desc    = future_details.get("group_short_description", "")
+
             results.append({
-                "product_id":  pid,
-                "prefix":      prefix,
-                "name":        f"{friendly[0]} — {expiry_str}",
-                "expiry":      expiry_str,
-                "sort_key":    _expiry_sort_key(expiry_str),
-                "point_value": friendly[1],
-                "price":       price,
+                "product_id":    pid,
+                "prefix":        prefix,
+                "name":          f"{friendly[0]} — {expiry_str}",
+                "expiry":        expiry_str,
+                "sort_key":      _expiry_sort_key(expiry_str),
+                "point_value":   contract_size,   # USD per 1-unit price move
+                "contract_size": contract_size,
+                "contract_unit": contract_root,
+                "group_desc":    group_desc,
+                "price":         price,
             })
 
         # Sort by prefix then chronological expiry date
