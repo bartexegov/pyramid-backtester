@@ -261,25 +261,48 @@ def fetch_coinbase_products(api_key: str = "", api_secret: str = "") -> list:
         if r.status_code != 200:
             return []
         products = r.json().get("products", [])
+
+        # Month code -> number for correct chronological sorting
+        _month_to_num = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
+                         "JUL":7,"AUG":8,"SEP":9,"OCT":10,"NOV":11,"DEC":12}
+
+        def _expiry_sort_key(expiry_str: str):
+            """Convert '24APR26' -> (2026, 4, 24) for correct date sort."""
+            try:
+                day   = int(expiry_str[:2])
+                month = _month_to_num.get(expiry_str[2:5].upper(), 0)
+                year  = 2000 + int(expiry_str[5:7])
+                return (year, month, day)
+            except Exception:
+                return (9999, 99, 99)
+
         results = []
         for p in products:
             pid  = p.get("product_id", "")
             if not pid or "CDE" not in pid:
                 continue
-            parts  = pid.split("-")
-            prefix = parts[0]
+            parts      = pid.split("-")
+            prefix     = parts[0]
             expiry_str = parts[1] if len(parts) > 1 else ""
+            price      = float(p.get("price", 0) or 0)
+
+            # Skip contracts with no price data (no active market)
+            if price <= 0:
+                continue
+
             friendly = COINBASE_FUTURES.get(prefix, (prefix, 1.0))
             results.append({
-                "product_id": pid,
-                "prefix":     prefix,
-                "name":       f"{friendly[0]} — {expiry_str}",
-                "expiry":     expiry_str,
+                "product_id":  pid,
+                "prefix":      prefix,
+                "name":        f"{friendly[0]} — {expiry_str}",
+                "expiry":      expiry_str,
+                "sort_key":    _expiry_sort_key(expiry_str),
                 "point_value": friendly[1],
-                "price":      float(p.get("price", 0) or 0),
+                "price":       price,
             })
-        # Sort by prefix then expiry
-        results.sort(key=lambda x: (x["prefix"], x["expiry"]))
+
+        # Sort by prefix then chronological expiry date
+        results.sort(key=lambda x: (x["prefix"], x["sort_key"]))
         return results
     except Exception:
         return []
