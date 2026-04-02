@@ -106,11 +106,11 @@ COMMODITY_CONTRACT_INFO = {
     "Nasdaq (NQ)":          {"prefix": "NQ", "exchange": "CME",  "months": "HMUZ",        "unit": "USD/index",     "contract_size": 20,     "tick": 0.25,   "tick_value":  5.00},
 }
 
-# Mapowanie litery miesiaca na nazwe
+# Month code -> (English name, month number)
 MONTH_CODES = {
-    "F": ("Sty", 1), "G": ("Lut", 2), "H": ("Mar", 3), "J": ("Kwi", 4),
-    "K": ("Maj", 5), "M": ("Cze", 6), "N": ("Lip", 7), "Q": ("Sie", 8),
-    "U": ("Wrz", 9), "V": ("Paz",10), "X": ("Lis",11), "Z": ("Gru",12),
+    "F": ("Jan", 1), "G": ("Feb", 2), "H": ("Mar", 3), "J": ("Apr", 4),
+    "K": ("May", 5), "M": ("Jun", 6), "N": ("Jul", 7), "Q": ("Aug", 8),
+    "U": ("Sep", 9), "V": ("Oct",10), "X": ("Nov",11), "Z": ("Dec",12),
 }
 
 
@@ -145,7 +145,7 @@ def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
             month_name = MONTH_CODES.get(month_code, ("?", 0))[0]
             candidates.append({
                 "symbol": symbol,
-                "name":   f"{prefix} {month_name}-{yr} ({month_code}{yr2})",
+                "name":   f"{prefix} {month_name} {yr}",  # e.g. "ZC May 2026"
             })
 
     if not candidates:
@@ -445,13 +445,23 @@ def fetch_coinbase_products(api_key: str = "", api_secret: str = "") -> list:
             contract_root = future_details.get("contract_root_unit", prefix)
             group_desc    = future_details.get("group_short_description", "")
 
+            # Build readable expiry: "24APR26" -> "Apr 2026"
+            try:
+                _m = _month_to_num.get(expiry_str[2:5].upper(), 0)
+                _y = 2000 + int(expiry_str[5:7])
+                _mn = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][_m]
+                expiry_readable = f"{_mn} {_y}"
+            except Exception:
+                expiry_readable = expiry_str
+
             results.append({
                 "product_id":    pid,
                 "prefix":        prefix,
-                "name":          f"{friendly[0]} — {expiry_str}",
+                "name":          f"{friendly[0]} - {expiry_readable}",
                 "expiry":        expiry_str,
+                "expiry_readable": expiry_readable,
                 "sort_key":      _expiry_sort_key(expiry_str),
-                "point_value":   contract_size,   # USD per 1-unit price move
+                "point_value":   contract_size,
                 "contract_size": contract_size,
                 "contract_unit": contract_root,
                 "group_desc":    group_desc,
