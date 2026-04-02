@@ -463,6 +463,8 @@ with st.container():
                 st.error(f"Data fetch error: {e}")
         if df_new is None or df_new.empty:
             st.error("No data returned. Check symbol or adjust date range.")
+            if data_source == "Coinbase (Crypto Futures)":
+                st.info("💡 Coinbase futures contracts have limited history — only from their launch date. Try a shorter date range (e.g. last 30–60 days).")
         else:
             with st.spinner("Running backtest..."):
                 result_new = run_backtest(
@@ -527,6 +529,11 @@ with st.container():
         dir_badge = f"<span style='background:{dir_badge_color};color:#0f172a;font-weight:700;padding:2px 8px;border-radius:4px;font-size:0.75rem'>{direction_disp}</span>"
 
         bar_label = {"1h": "bars (1h)", "1d": "sessions", "1wk": "weeks"}.get(tf_interval_disp, "bars")
+
+        # Warn if Coinbase returned much less data than requested
+        if data_source == "Coinbase (Crypto Futures)" and len(df) < 30:
+            st.warning(f"⚠️ Only {len(df)} bars returned. Coinbase futures contracts have limited history — only data since contract launch date is available.")
+
         st.markdown(
             f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:0.82rem'>"
             f"{dir_badge}"

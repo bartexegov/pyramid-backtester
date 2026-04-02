@@ -360,6 +360,12 @@ def fetch_coinbase_candles(
     max_candles = 350
     chunk_size  = gran_seconds * max_candles
 
+    # Coinbase rejects requests with range > ~300 days — cap each chunk
+    # Also note: specific futures contracts have limited history (only since contract launch)
+    max_candles = 300
+    chunk_size  = gran_seconds * max_candles
+    empty_chunks = 0  # stop after 2 consecutive empty chunks (contract didn't exist yet)
+
     while chunk_end > start_ts:
         chunk_start = max(start_ts, chunk_end - chunk_size)
         try:
@@ -374,8 +380,12 @@ def fetch_coinbase_candles(
                 break
             candles = r.json().get("candles", [])
             if not candles:
-                break
-            all_candles.extend(candles)
+                empty_chunks += 1
+                if empty_chunks >= 2:
+                    break  # Contract didn't exist this far back — stop
+            else:
+                empty_chunks = 0
+                all_candles.extend(candles)
         except Exception:
             break
         chunk_end = chunk_start
