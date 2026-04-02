@@ -434,16 +434,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-strategy_tab1, strategy_tab2 = st.tabs([
-    "📈 Strategy 1 — Pyramid Long",
-    "➕ Add strategy (coming soon)",
-])
-
-with strategy_tab2:
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.info("More strategies coming soon — Pyramid Short, Mean Reversion, Breakout, etc.")
-
-with strategy_tab1:
+with st.container():
 
     st.markdown('<div class="strategy-tag">Pyramid Long · Buy below threshold · TP per contract</div>', unsafe_allow_html=True)
 
@@ -528,9 +519,17 @@ with strategy_tab1:
         dir_badge_color = "#34d399" if is_long_disp else "#f87171"
         dir_badge = f"<span style='background:{dir_badge_color};color:#0f172a;font-weight:700;padding:2px 8px;border-radius:4px;font-size:0.75rem'>{direction_disp}</span>"
 
-        bar_label = {"1h": "bars (1h)", "1d": "sessions (daily)", "1wk": "weeks"}.get(tf_interval_disp, "bars")
-        st.markdown(f"<div style='font-size:0.8rem;color:#64748b;margin-bottom:4px'>✓ {dir_badge} {len(df)} {bar_label} · {tf_label_disp} · {commodity_name_disp} · {st.session_state['bt_start']} → {st.session_state['bt_end']}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:0.78rem;color:#475569;margin-bottom:12px'>💡 {pv_info} · {comm_info} — PnL in <b>{pnl_currency}</b></div>", unsafe_allow_html=True)
+        bar_label = {"1h": "bars (1h)", "1d": "sessions", "1wk": "weeks"}.get(tf_interval_disp, "bars")
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:0.82rem'>"
+            f"{dir_badge}"
+            f"<span style='color:#64748b'>{commodity_name_disp} · {tf_label_disp} · {len(df)} {bar_label}</span>"
+            f"<span style='color:#334155'>|</span>"
+            f"<span style='color:#475569'>{st.session_state['bt_start']} → {st.session_state['bt_end']}</span>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        st.markdown(f"<div style='font-size:0.75rem;color:#475569;margin-bottom:14px'>{pv_info} · {comm_info}</div>", unsafe_allow_html=True)
 
         # ── Metrics ────────────────────────────────────────────
         avg_pnl = result.total_pnl / result.total_trades if result.total_trades > 0 else 0
@@ -541,68 +540,69 @@ with strategy_tab1:
         low_date    = fmt_date(df["Low"].idxmin())
 
         if True:
-            # ── Active parameters banner ───────────────────────
+            # ── Active parameters banner — compact pill style ───
             _step = result.params.get("pyramid_step", "?")
             _tp   = result.params.get("take_profit", "?")
             _thr  = result.params.get("entry_threshold", "?")
             _comm = result.params.get("commission_per_side", 0.0)
             _pv   = result.params.get("point_value", 1.0)
+            dir_col = "#34d399" if direction_disp == "Long" else "#f87171"
+            dir_bg  = "rgba(52,211,153,0.12)" if direction_disp == "Long" else "rgba(248,113,113,0.12)"
+            pill = "display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:0.78rem;font-weight:600;gap:4px"
             st.markdown(
-                f"<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
-                f"padding:10px 16px;margin-bottom:12px;font-size:0.82rem;display:flex;"
-                f"flex-wrap:wrap;gap:16px;align-items:center'>"
-                f"<span style='color:#64748b;font-weight:600;text-transform:uppercase;"
-                f"font-size:0.65rem;letter-spacing:0.08em'>Active parameters</span>"
-                f"<span style='color:#e2e8f0'>Threshold: <b style='color:#f87171'>{_thr}$</b></span>"
-                f"<span style='color:#e2e8f0'>Step: <b style='color:#38bdf8'>{_step}$</b></span>"
-                f"<span style='color:#e2e8f0'>TP: <b style='color:#34d399'>{_tp}$</b></span>"
-                f"<span style='color:#e2e8f0'>Commission: <b style='color:#94a3b8'>{_comm}$/side</b></span>"
-                f"<span style='color:#e2e8f0'>Point value: <b style='color:#94a3b8'>{_pv:.0f} $/pt</b></span>"
-                f"<span style='color:#e2e8f0'>Direction: <b style='color:"
-                f"{'#34d399' if direction_disp=='Long' else '#f87171'}'>{direction_disp}</b></span>"
+                f"<div style='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px;padding:12px 16px;"
+                f"background:#0f172a;border:1px solid #1e293b;border-radius:10px'>"
+                f"<span style='color:#475569;font-size:0.7rem;font-weight:700;letter-spacing:0.1em;margin-right:4px'>ACTIVE</span>"
+                f"<span style='{pill};background:{dir_bg};color:{dir_col};border:1px solid {dir_col}33'>{direction_disp}</span>"
+                f"<span style='{pill};background:rgba(248,113,113,0.1);color:#fca5a5;border:1px solid #f8717133'>Threshold {_thr}$</span>"
+                f"<span style='{pill};background:rgba(56,189,248,0.1);color:#7dd3fc;border:1px solid #38bdf833'>Step {_step}$</span>"
+                f"<span style='{pill};background:rgba(52,211,153,0.1);color:#86efac;border:1px solid #34d39933'>TP {_tp}$</span>"
+                f"<span style='{pill};background:#1e293b;color:#94a3b8;border:1px solid #33415533'>Comm {_comm}$/side</span>"
+                f"<span style='{pill};background:#1e293b;color:#94a3b8;border:1px solid #33415533'>PV {_pv:.0f}$/pt</span>"
                 f"</div>",
                 unsafe_allow_html=True
             )
-            cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:16px 0">'
+
+            # ── Section: Results ──────────────────────────────
+            st.markdown("<div style='font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin:4px 0 8px 0'>Results</div>", unsafe_allow_html=True)
             total_comm_paid = getattr(result, "total_commission", 0.0)
             total_entries   = len(result.trades)
             total_exits     = result.total_trades
             total_ops       = total_entries + total_exits
+            cards_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">'
             cards_html += metric_card("Total PnL", f"${result.total_pnl:,.2f}", f"{'▲' if pnl_pos else '▼'} after commissions", positive=pnl_pos)
             cards_html += metric_card("Total commission", f"${total_comm_paid:,.2f}", f"{total_ops} ops × ${comm:.2f}")
             cards_html += metric_card("Total operations", str(total_ops), f"{total_entries} buys + {total_exits} sells (TP)")
             cards_html += metric_card("Closed trades", str(total_exits), f"{result.winning_trades}W / {result.losing_trades}L")
             cards_html += metric_card("Avg PnL / trade", f"${avg_pnl:.2f}", "per closed contract", positive=avg_pnl >= 0)
-            cards_html += metric_card("Max contracts", str(result.max_concurrent), "open simultaneously")
-            cards_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f} (margin only)")
-            unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
-            cards_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
+            cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
+            cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average hold time")
+            cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
+            cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
+            cards_html += '</div>'
+            st.markdown(cards_html, unsafe_allow_html=True)
 
-            # Balance at Close on the day with most contracts open
+            # ── Section: Capital & Risk ───────────────────────
+            st.markdown("<div style='font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin:4px 0 8px 0'>Capital & Risk</div>", unsafe_allow_html=True)
+            risk_html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px">'
+            risk_html += metric_card("Max contracts", str(result.max_concurrent), "open simultaneously")
+            risk_html += metric_card("Max capital req.", f"${result.max_capital_needed:,.0f}", f"{result.max_concurrent} × ${margin_per_contract_disp:,.0f} (margin only)")
+            unrealized_extra = result.max_capital_with_unrealized - result.max_capital_needed
+            risk_html += metric_card("Max capital (real)", f"${result.max_capital_with_unrealized:,.0f}", f"margin + ${unrealized_extra:,.0f} unrealized loss", positive=False)
             max_contr_idx = result.daily_open_contracts.idxmax()
             max_contr_date = fmt_date(max_contr_idx)
             bal_at_max_contr = float(result.balance_curve.loc[max_contr_idx]) if max_contr_idx in result.balance_curve.index else 0.0
-            bal_at_max_contr_pos = bal_at_max_contr >= 0
-            cards_html += metric_card("Balance at peak contracts", f"${bal_at_max_contr:,.2f}", f"Close balance on {max_contr_date} ({result.max_concurrent} contracts)", positive=bal_at_max_contr_pos)
-
-            cards_html += metric_card("Open positions", str(result.open_trades), "not closed at end of period")
-            cards_html += metric_card("Avg days to TP", f"{result.avg_days_open:.0f}", "average holding time")
-            cards_html += metric_card("Period HIGH", f"${period_high:,.2f}", f"highest price · {high_date}")
-            cards_html += metric_card("Period LOW", f"${period_low:,.2f}", f"lowest price · {low_date}")
-
-            # Lowest balance at Close — same calculation as the chart line
+            risk_html += metric_card("Balance at peak contracts", f"${bal_at_max_contr:,.2f}", f"Close · {max_contr_date} ({result.max_concurrent} contr.)", positive=bal_at_max_contr >= 0)
             min_balance = float(result.balance_curve.min())
             min_balance_idx = result.balance_curve.idxmin()
             min_balance_date = fmt_date(min_balance_idx)
             min_balance_contracts = int(result.daily_open_contracts.loc[min_balance_idx]) if min_balance_idx in result.daily_open_contracts.index else 0
-            cards_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"{min_balance_date} · {min_balance_contracts} contracts open", positive=False)
-
-            # Total capital needed at worst Close day = margin + loss cover
+            risk_html += metric_card("Lowest balance (Close)", f"${min_balance:,.2f}", f"{min_balance_date} · {min_balance_contracts} contr.", positive=False)
             worst_margin = min_balance_contracts * margin_per_contract_disp
             total_needed = worst_margin + max(0.0, -min_balance)
-            cards_html += metric_card("Total needed at worst day", f"${total_needed:,.2f}", f"margin ${worst_margin:,.0f} + loss cover ${max(0.0,-min_balance):,.0f}", positive=False)
-            cards_html += '</div>'
-            st.markdown(cards_html, unsafe_allow_html=True)
+            risk_html += metric_card("Total needed at worst day", f"${total_needed:,.2f}", f"margin ${worst_margin:,.0f} + loss ${max(0.0,-min_balance):,.0f}", positive=False)
+            risk_html += '</div>'
+            st.markdown(risk_html, unsafe_allow_html=True)
 
             # ── Charts ────────────────────────────────────────
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -820,13 +820,10 @@ with strategy_tab1:
                     margin=dict(l=0, r=0, t=40, b=60),
                     paper_bgcolor="#0f172a", plot_bgcolor="#0f172a",
                     xaxis_rangeslider_visible=False,
-                     title=dict(text=(
-                        f"{commodity_name_disp}  |  {tf_label_disp}  |  {direction_disp}"
-                        f"  |  Threshold: {entry_threshold_disp}$"
-                        f"  |  Step: {result.params.get('pyramid_step', st.session_state.get('bt_step', '?'))}$"
-                        f"  |  TP: {result.params.get('take_profit', st.session_state.get('bt_tp', '?'))}$"
-                        f"  |  Commission: {result.params.get('commission_per_side', st.session_state.get('bt_commission', 0.0))}$/side"
-                    ), font=dict(size=12, color="#94a3b8")),
+                     title=dict(
+                        text=f"{commodity_name_disp} · {tf_label_disp} · {direction_disp} · T:{entry_threshold_disp} S:{result.params.get('pyramid_step','?')} TP:{result.params.get('take_profit','?')}",
+                        font=dict(size=12, color="#64748b"),
+                    ),
                     legend=dict(orientation="h", y=-0.1, x=0, font=dict(color="#94a3b8", size=12)),
                     hovermode="x",
                     hoverdistance=100,
@@ -845,7 +842,8 @@ with strategy_tab1:
 
             # ── Volume Profile ──────────────────────────────────
             st.markdown("<div style='margin-top:24px;border-top:1px solid #1e293b;padding-top:20px'></div>", unsafe_allow_html=True)
-            st.markdown("<div style='font-size:1rem;font-weight:700;color:#f1f5f9;margin-bottom:12px'>🔥 Volume Profile — support zones</div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:1px;background:#1e293b;margin:24px 0 20px 0'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.7rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px'>Volume Profile — Historical Support Zones</div>", unsafe_allow_html=True)
 
             vp_min_date = date(1950, 1, 1)
             vp_dc1, vp_dc2 = st.columns(2)
