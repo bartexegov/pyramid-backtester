@@ -330,29 +330,39 @@ def fetch_ibkr_data(
     # End date as IBKR format string "YYYYMMDD HH:MM:SS"
     end_str = end_dt.strftime("%Y%m%d 23:59:59")
 
-    async def _fetch_async():
+    def _fetch_sync():
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        from ib_insync import IB, Future, util as _util
+        try:
+            _util.logToConsole(0)
+        except Exception:
+            pass
         _ib = IB()
-        await _ib.connectAsync(host, port, clientId=client_id, timeout=10)
+        _ib.connect(host, port, clientId=client_id, timeout=10)
         try:
             _contract = Future(symbol=symbol, exchange=exchange, currency=currency)
             if expiry:
                 _contract.lastTradeDateOrContractMonth = expiry
-            _qualified = await _ib.qualifyContractsAsync(_contract)
+            _qualified = _ib.qualifyContracts(_contract)
             if not _qualified:
-                raise RuntimeError(f"Could not qualify {symbol} on {exchange}")
-            _bars = await _ib.reqHistoricalDataAsync(
+                raise RuntimeError(f"Could not qualify {symbol} on {exchange}. Check market data subscription.")
+            _bars = _ib.reqHistoricalData(
                 contract=_qualified[0], endDateTime=end_str,
                 durationStr=duration, barSizeSetting=ib_bar_size,
                 whatToShow="TRADES", useRTH=True, formatDate=1, keepUpToDate=False,
             )
             if not _bars:
-                raise RuntimeError(f"No data returned for {commodity_name}")
+                raise RuntimeError(f"No data returned for {commodity_name}. Check subscription and date range.")
             return _bars
         finally:
             _ib.disconnect()
+            loop.close()
 
-    bars = _run_in_new_loop(_fetch_async())
+    bars = _ibkr_in_thread(_fetch_sync)
 
+    from ib_insync import util
     df = util.df(bars)
     if df is None or df.empty:
         raise RuntimeError(f"Empty DataFrame for {commodity_name}")
@@ -369,43 +379,52 @@ def fetch_ibkr_data(
     return df[df["Close"] > 0]
 
 
-def _run_in_new_loop(coro):
-    """Run an async coroutine in a fresh event loop — needed for Streamlit threads."""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+def _ibkr_in_thread(fn, *args, **kwargs):
+    """
+    Run a synchronous ib_insync function in a dedicated thread with its own
+    event loop. This is required because Streamlit's ScriptRunner thread
+    does not have an asyncio event loop, which ib_insync requires.
+    """
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn, *args, **kwargs)
+        return future.result(timeout=30)
 
 
 def test_ibkr_connection(host: str = "127.0.0.1", port: int = 7497, client_id: int = 99) -> tuple:
     """
     Test IBKR connection. Returns (connected: bool, message: str).
-    Creates its own event loop to work inside Streamlit's script thread.
+    Runs in a separate thread to avoid Streamlit asyncio conflict.
     """
-    try:
-        from ib_insync import IB, util
+    def _test():
         import asyncio
+        # Create a new event loop for this thread — ib_insync requires one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            util.logToConsole(0)
-        except Exception:
-            pass
-
-        async def _test():
+            from ib_insync import IB, util
+            try:
+                util.logToConsole(0)
+            except Exception:
+                pass
             ib = IB()
-            await ib.connectAsync(host, port, clientId=client_id, timeout=5)
-            ver = ib.serverVersion()
+            ib.connect(host, port, clientId=client_id, timeout=5)
+            ver = ib.client.serverVersion()
+            account = ib.managedAccounts()
+            acc_str = account[0] if account else "unknown"
             ib.disconnect()
-            return ver
+            return True, f"Connected to IBKR server v{ver} | Account: {acc_str}"
+        except ImportError:
+            return False, "ib_insync not installed — run: pip install ib_insync"
+        except Exception as e:
+            return False, f"Cannot connect to {host}:{port} — {str(e)[:120]}"
+        finally:
+            loop.close()
 
-        ver = _run_in_new_loop(_test())
-        return True, f"Connected to IBKR (server v{ver})"
-    except ImportError:
-        return False, "ib_insync not installed — run: pip install ib_insync"
+    try:
+        return _ibkr_in_thread(_test)
     except Exception as e:
-        return False, f"Cannot connect to {host}:{port} — {str(e)[:120]}"
+        return False, f"Thread error: {str(e)[:120]}"
 
 
 # ─────────────────────────────────────────────────────────────
