@@ -213,12 +213,17 @@ with st.sidebar:
 
         # Test connection button
         if st.button("🔌 Test connection", key="ibkr_test", use_container_width=True):
-            with st.spinner("Connecting..."):
+            with st.spinner("Connecting to IBKR..."):
                 ok, msg = test_ibkr_connection(ibkr_host, int(ibkr_port))
-            if ok:
-                st.success(msg)
+            st.session_state["ibkr_conn_ok"]  = ok
+            st.session_state["ibkr_conn_msg"] = msg
+
+        # Show connection status persistently
+        if "ibkr_conn_ok" in st.session_state:
+            if st.session_state["ibkr_conn_ok"]:
+                st.markdown(f"<div style='background:#052e16;border:1px solid #16a34a;border-radius:6px;padding:8px 12px;font-size:0.8rem;color:#86efac;margin:4px 0'>✅ {st.session_state['ibkr_conn_msg']}</div>", unsafe_allow_html=True)
             else:
-                st.error(msg)
+                st.markdown(f"<div style='background:#450a0a;border:1px solid #dc2626;border-radius:6px;padding:8px 12px;font-size:0.8rem;color:#fca5a5;margin:4px 0'>❌ {st.session_state['ibkr_conn_msg']}</div>", unsafe_allow_html=True)
 
         # Instrument selector
         ibkr_names = list(IBKR_INSTRUMENTS.keys())
