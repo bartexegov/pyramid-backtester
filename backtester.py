@@ -287,7 +287,10 @@ def fetch_ibkr_data(
     """
     try:
         from ib_insync import IB, Future, util
-        util.logToConsole(None)   # suppress ib_insync log noise
+        try:
+            util.logToConsole(0)   # suppress ib_insync log noise
+        except Exception:
+            pass
     except ImportError:
         raise RuntimeError(
             "ib_insync not installed. Run: pip install ib_insync"
@@ -327,99 +330,82 @@ def fetch_ibkr_data(
     # End date as IBKR format string "YYYYMMDD HH:MM:SS"
     end_str = end_dt.strftime("%Y%m%d 23:59:59")
 
-    ib = IB()
-    try:
-        ib.connect(host, port, clientId=client_id, timeout=10)
-    except Exception as e:
-        raise RuntimeError(
-            f"Cannot connect to IBKR TWS/Gateway at {host}:{port}.\n"
-            f"Make sure TWS or IB Gateway is running and API is enabled.\n"
-            f"Error: {e}"
-        )
-
-    try:
-        # Build contract
-        contract = Future(
-            symbol   = symbol,
-            exchange = exchange,
-            currency = currency,
-        )
-        if expiry:
-            contract.lastTradeDateOrContractMonth = expiry
-
-        # Qualify contract (resolves front month etc.)
-        qualified = ib.qualifyContracts(contract)
-        if not qualified:
-            raise RuntimeError(
-                f"IBKR could not qualify contract for {commodity_name} ({symbol} on {exchange}). "
-                f"Check that you have a market data subscription for this instrument."
+    async def _fetch_async():
+        _ib = IB()
+        await _ib.connectAsync(host, port, clientId=client_id, timeout=10)
+        try:
+            _contract = Future(symbol=symbol, exchange=exchange, currency=currency)
+            if expiry:
+                _contract.lastTradeDateOrContractMonth = expiry
+            _qualified = await _ib.qualifyContractsAsync(_contract)
+            if not _qualified:
+                raise RuntimeError(f"Could not qualify {symbol} on {exchange}")
+            _bars = await _ib.reqHistoricalDataAsync(
+                contract=_qualified[0], endDateTime=end_str,
+                durationStr=duration, barSizeSetting=ib_bar_size,
+                whatToShow="TRADES", useRTH=True, formatDate=1, keepUpToDate=False,
             )
+            if not _bars:
+                raise RuntimeError(f"No data returned for {commodity_name}")
+            return _bars
+        finally:
+            _ib.disconnect()
 
-        # Request historical bars
-        bars = ib.reqHistoricalData(
-            contract         = qualified[0],
-            endDateTime      = end_str,
-            durationStr      = duration,
-            barSizeSetting   = ib_bar_size,
-            whatToShow       = "TRADES",
-            useRTH           = True,         # Regular Trading Hours only
-            formatDate       = 1,
-            keepUpToDate     = False,
-        )
+    bars = _run_in_new_loop(_fetch_async())
 
-        if not bars:
-            raise RuntimeError(
-                f"No historical data returned for {commodity_name}. "
-                f"Check market data subscription and date range."
-            )
+    df = util.df(bars)
+    if df is None or df.empty:
+        raise RuntimeError(f"Empty DataFrame for {commodity_name}")
 
-        # Convert to DataFrame
-        df = util.df(bars)
-        if df is None or df.empty:
-            raise RuntimeError(f"Empty data returned for {commodity_name}")
+    df = df.rename(columns={"date":"Date","open":"Open","high":"High",
+                             "low":"Low","close":"Close","volume":"Volume"})
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date")
+    df = df[["Open","High","Low","Close","Volume"]].copy()
+    start_ts = pd.Timestamp(start_dt)
+    end_ts   = pd.Timestamp(end_dt)
+    df = df[(df.index >= start_ts) & (df.index <= end_ts)]
+    df = df.dropna()
+    return df[df["Close"] > 0]
 
-        # Standardize columns
-        df = df.rename(columns={
-            "date":   "Date",
-            "open":   "Open",
-            "high":   "High",
-            "low":    "Low",
-            "close":  "Close",
-            "volume": "Volume",
-        })
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.set_index("Date")
-        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
 
-        # Filter to requested date range
-        start_ts = pd.Timestamp(start_dt)
-        end_ts   = pd.Timestamp(end_dt)
-        df = df[(df.index >= start_ts) & (df.index <= end_ts)]
-        df = df.dropna()
-        df = df[df["Close"] > 0]
-
-        return df
-
+def _run_in_new_loop(coro):
+    """Run an async coroutine in a fresh event loop — needed for Streamlit threads."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
     finally:
-        ib.disconnect()
+        loop.close()
 
 
 def test_ibkr_connection(host: str = "127.0.0.1", port: int = 7497, client_id: int = 99) -> tuple:
     """
     Test IBKR connection. Returns (connected: bool, message: str).
+    Creates its own event loop to work inside Streamlit's script thread.
     """
     try:
         from ib_insync import IB, util
-        util.logToConsole(None)
-        ib = IB()
-        ib.connect(host, port, clientId=client_id, timeout=5)
-        server_version = ib.serverVersion()
-        ib.disconnect()
-        return True, f"Connected to IBKR (server v{server_version})"
+        import asyncio
+        try:
+            util.logToConsole(0)
+        except Exception:
+            pass
+
+        async def _test():
+            ib = IB()
+            await ib.connectAsync(host, port, clientId=client_id, timeout=5)
+            ver = ib.serverVersion()
+            ib.disconnect()
+            return ver
+
+        ver = _run_in_new_loop(_test())
+        return True, f"Connected to IBKR (server v{ver})"
     except ImportError:
         return False, "ib_insync not installed — run: pip install ib_insync"
     except Exception as e:
-        return False, f"Cannot connect to {host}:{port} — {str(e)[:100]}"
+        return False, f"Cannot connect to {host}:{port} — {str(e)[:120]}"
 
 
 # ─────────────────────────────────────────────────────────────
