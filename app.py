@@ -10,7 +10,7 @@ import plotly.express as px
 from datetime import date, timedelta
 import collections
 
-from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile, fetch_coinbase_products, fetch_coinbase_candles, fetch_coinbase_spot_candles, COINBASE_FUTURES, COINBASE_GRANULARITY, COINBASE_SPOT_TOP50
+from backtester import fetch_data, run_backtest, trades_to_dataframe, COMMODITY_SYMBOLS, COMMODITY_CONTRACT_INFO, TIMEFRAME_INTERVALS, TIMEFRAME_LIMITS, get_available_contracts, find_support_zones, compute_volume_profile, fetch_coinbase_products, fetch_coinbase_candles, fetch_coinbase_spot_candles, COINBASE_FUTURES, COINBASE_GRANULARITY, COINBASE_SPOT_TOP50, fetch_ibkr_data, test_ibkr_connection, IBKR_INSTRUMENTS, IBKR_BAR_SIZES
 
 # ─────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -188,11 +188,69 @@ with st.sidebar:
 
     # ── Data source ─────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Data source</div>', unsafe_allow_html=True)
-    data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Coinbase (Crypto Spot)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
+    data_source = st.radio("Source", ["Yahoo Finance (Commodities)", "Interactive Brokers (IBKR)", "Coinbase (Crypto Spot)", "Coinbase (Crypto Futures)"], horizontal=False, label_visibility="collapsed")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Instrument ──────────────────────────────────────────
     st.markdown('<div class="sidebar-section"><div class="sidebar-section-title">Instrument</div>', unsafe_allow_html=True)
+
+    # ── IBKR path ────────────────────────────────────────────
+    ibkr_commodity  = None
+    ibkr_expiry     = ""
+    ibkr_host       = "127.0.0.1"
+    ibkr_port       = 7497
+
+    if data_source == "Interactive Brokers (IBKR)":
+        # Connection settings
+        st.markdown("<div style='font-size:0.75rem;color:#64748b;font-weight:600;margin-bottom:6px'>TWS / IB Gateway connection</div>", unsafe_allow_html=True)
+        col_h, col_p = st.columns([3, 2])
+        with col_h:
+            ibkr_host = st.text_input("Host", value="127.0.0.1", key="ibkr_host", label_visibility="collapsed")
+        with col_p:
+            ibkr_port = st.number_input("Port", value=7497, min_value=1000, max_value=9999, step=1, key="ibkr_port", label_visibility="collapsed",
+                help="7497 = paper trading, 7496 = live trading")
+        st.caption(f"Port 7497 = paper  |  7496 = live")
+
+        # Test connection button
+        if st.button("🔌 Test connection", key="ibkr_test", use_container_width=True):
+            with st.spinner("Connecting..."):
+                ok, msg = test_ibkr_connection(ibkr_host, int(ibkr_port))
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+        # Instrument selector
+        ibkr_names = list(IBKR_INSTRUMENTS.keys())
+        prev_ibkr  = st.session_state.get("ibkr_selected", ibkr_names[0])
+        def_ibkr   = ibkr_names.index(prev_ibkr) if prev_ibkr in ibkr_names else 0
+        ibkr_commodity = st.selectbox("Commodity", options=ibkr_names, index=def_ibkr,
+            label_visibility="collapsed", key="ibkr_commodity_sel")
+        st.session_state["ibkr_selected"] = ibkr_commodity
+
+        # Optional: specific contract month
+        ibkr_expiry = st.text_input(
+            "Contract month (optional)",
+            value="",
+            placeholder="e.g. 20260500 for May 2026 — leave blank for front month",
+            key="ibkr_expiry",
+            label_visibility="collapsed",
+            help="Format YYYYMMDD — leave empty for continuous front month contract",
+        )
+
+        # Show contract info
+        info_ibkr = IBKR_INSTRUMENTS.get(ibkr_commodity, ("?","?","?","?"))
+        st.caption(f"Symbol: `{info_ibkr[0]}`  Exchange: `{info_ibkr[1]}`")
+        ci_ibkr = COMMODITY_CONTRACT_INFO.get(ibkr_commodity)
+        if ci_ibkr:
+            pv_ibkr = ci_ibkr["tick_value"] / ci_ibkr["tick"]
+            st.caption(f"Point value: **{pv_ibkr:.0f} $/pt**  |  Tick: {ci_ibkr['tick']} = ${ci_ibkr['tick_value']}")
+
+        symbol         = ibkr_commodity
+        commodity_name = ibkr_commodity
+        point_value    = (COMMODITY_CONTRACT_INFO.get(ibkr_commodity, {}).get("tick_value", 1.0) /
+                          COMMODITY_CONTRACT_INFO.get(ibkr_commodity, {}).get("tick", 1.0))
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── COINBASE paths ───────────────────────────────────────
     coinbase_product_id  = None
@@ -467,7 +525,17 @@ with st.container():
         df_new = None
         with st.spinner(f"Fetching data for {commodity_name}..."):
             try:
-                if data_source == "Coinbase (Crypto Futures)" and coinbase_product_id:
+                if data_source == "Interactive Brokers (IBKR)" and ibkr_commodity:
+                    df_new = fetch_ibkr_data(
+                        commodity_name = ibkr_commodity,
+                        start          = start_date,
+                        end            = end_date,
+                        bar_size       = tf_interval,
+                        host           = ibkr_host,
+                        port           = int(ibkr_port),
+                        expiry         = ibkr_expiry.strip(),
+                    )
+                elif data_source == "Coinbase (Crypto Futures)" and coinbase_product_id:
                     gran = COINBASE_GRANULARITY.get(tf_interval, "ONE_DAY")
                     try:
                         cb_key    = st.secrets["coinbase"]["api_key"]
@@ -482,6 +550,12 @@ with st.container():
                     df_new = fetch_data(symbol, start=start_date, end=end_date, interval=tf_interval)
             except Exception as e:
                 st.error(f"Data fetch error: {e}")
+                if data_source == "Interactive Brokers (IBKR)":
+                    st.info("💡 **IBKR troubleshooting:**\n"
+                            "1. Open TWS or IB Gateway on your computer\n"
+                            "2. TWS → Edit → Global Config → API → Enable ActiveX and Socket Clients\n"
+                            "3. Set port 7497 (paper) or 7496 (live)\n"
+                            "4. Use the '🔌 Test connection' button in the sidebar to verify")
         if df_new is None or df_new.empty:
             st.error("No data returned. Check symbol or adjust date range.")
             if data_source == "Coinbase (Crypto Futures)":

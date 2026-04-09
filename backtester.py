@@ -207,6 +207,222 @@ def get_available_contracts(commodity_name: str, years_ahead: int = 3) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
+# IBKR — Interactive Brokers historical data via ib_insync
+# Requires: pip install ib_insync
+# Requires: TWS or IB Gateway running locally on 127.0.0.1:7497 (paper)
+#           or 127.0.0.1:7496 (live)
+# ─────────────────────────────────────────────────────────────
+
+# IBKR instruments — maps our commodity names to IBKR contract params
+# Format: name -> (symbol, exchange, currency, secType)
+IBKR_INSTRUMENTS = {
+    "Corn (ZC)":            ("ZC", "CBOT",  "USD", "FUT"),
+    "Wheat (ZW)":           ("ZW", "CBOT",  "USD", "FUT"),
+    "Soybeans (ZS)":        ("ZS", "CBOT",  "USD", "FUT"),
+    "Oats (ZO)":            ("ZO", "CBOT",  "USD", "FUT"),
+    "Rough Rice (ZR)":      ("ZR", "CBOT",  "USD", "FUT"),
+    "Live Cattle (LE)":     ("LE", "CME",   "USD", "FUT"),
+    "Lean Hogs (HE)":       ("HE", "CME",   "USD", "FUT"),
+    "Feeder Cattle (FC)":   ("GF", "CME",   "USD", "FUT"),
+    "Sugar #11 (SB)":       ("SB", "NYBOT", "USD", "FUT"),
+    "Cotton (CT)":          ("CT", "NYBOT", "USD", "FUT"),
+    "Coffee (KC)":          ("KC", "NYBOT", "USD", "FUT"),
+    "Cocoa (CC)":           ("CC", "NYBOT", "USD", "FUT"),
+    "Orange Juice (OJ)":    ("OJ", "NYBOT", "USD", "FUT"),
+    "Crude Oil (CL)":       ("CL", "NYMEX", "USD", "FUT"),
+    "Natural Gas (NG)":     ("NG", "NYMEX", "USD", "FUT"),
+    "Gold (GC)":            ("GC", "COMEX", "USD", "FUT"),
+    "Silver (SI)":          ("SI", "COMEX", "USD", "FUT"),
+    "Palladium (PA)":       ("PA", "COMEX", "USD", "FUT"),
+    "Platinum (PL)":        ("PL", "NYMEX", "USD", "FUT"),
+    "Copper (HG)":          ("HG", "COMEX", "USD", "FUT"),
+    "S&P 500 (ES)":         ("ES", "CME",   "USD", "FUT"),
+    "Nasdaq (NQ)":          ("NQ", "CME",   "USD", "FUT"),
+}
+
+# Bar size mapping: app timeframe -> IBKR bar size string
+IBKR_BAR_SIZES = {
+    "1h":  "1 hour",
+    "1d":  "1 day",
+    "1wk": "1 week",
+}
+
+# Duration per bar size for IBKR requests
+# IBKR requires duration string like "1 Y", "6 M", "30 D"
+IBKR_DURATIONS = {
+    "1h":  "30 D",   # max ~30 days for hourly without pacing violation
+    "1d":  "5 Y",    # 5 years daily
+    "1wk": "10 Y",   # 10 years weekly
+}
+
+
+def fetch_ibkr_data(
+    commodity_name: str,
+    start,
+    end,
+    bar_size: str = "1d",
+    host: str = "127.0.0.1",
+    port: int = 7497,
+    client_id: int = 10,
+    expiry: str = "",          # e.g. "20260500" for May 2026, "" = front month
+) -> pd.DataFrame:
+    """
+    Fetch historical OHLCV data from Interactive Brokers via ib_insync.
+
+    Requirements:
+      - pip install ib_insync
+      - TWS or IB Gateway running on host:port
+      - Market data subscription for the instrument
+
+    Parameters:
+      commodity_name : key from IBKR_INSTRUMENTS dict
+      start, end     : date range
+      bar_size       : "1h", "1d", "1wk"
+      host/port      : TWS connection (7497=paper, 7496=live)
+      client_id      : unique client ID (change if conflict with NinjaTrader)
+      expiry         : contract month e.g. "20260500" — leave "" for front month
+
+    Returns DataFrame with Open/High/Low/Close/Volume indexed by date.
+    Raises RuntimeError if TWS is not running or instrument not found.
+    """
+    try:
+        from ib_insync import IB, Future, util
+        util.logToConsole(None)   # suppress ib_insync log noise
+    except ImportError:
+        raise RuntimeError(
+            "ib_insync not installed. Run: pip install ib_insync"
+        )
+
+    info = IBKR_INSTRUMENTS.get(commodity_name)
+    if not info:
+        raise RuntimeError(f"Instrument '{commodity_name}' not found in IBKR_INSTRUMENTS")
+
+    symbol, exchange, currency, sec_type = info
+    ib_bar_size = IBKR_BAR_SIZES.get(bar_size, "1 day")
+
+    # Calculate duration from date range
+    import time as _time
+    from datetime import date as _date, timedelta as _td
+
+    if hasattr(end, "timetuple"):
+        end_dt   = end
+    else:
+        end_dt   = _date.fromisoformat(str(end)[:10])
+    if hasattr(start, "timetuple"):
+        start_dt = start
+    else:
+        start_dt = _date.fromisoformat(str(start)[:10])
+
+    days_diff = (end_dt - start_dt).days
+    if bar_size == "1h":
+        # IBKR pacing: max 30 days per request for hourly
+        duration = f"{min(days_diff, 30)} D"
+    elif bar_size == "1wk":
+        years = max(1, round(days_diff / 365))
+        duration = f"{years} Y"
+    else:
+        years = max(1, round(days_diff / 365))
+        duration = f"{years} Y"
+
+    # End date as IBKR format string "YYYYMMDD HH:MM:SS"
+    end_str = end_dt.strftime("%Y%m%d 23:59:59")
+
+    ib = IB()
+    try:
+        ib.connect(host, port, clientId=client_id, timeout=10)
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot connect to IBKR TWS/Gateway at {host}:{port}.\n"
+            f"Make sure TWS or IB Gateway is running and API is enabled.\n"
+            f"Error: {e}"
+        )
+
+    try:
+        # Build contract
+        contract = Future(
+            symbol   = symbol,
+            exchange = exchange,
+            currency = currency,
+        )
+        if expiry:
+            contract.lastTradeDateOrContractMonth = expiry
+
+        # Qualify contract (resolves front month etc.)
+        qualified = ib.qualifyContracts(contract)
+        if not qualified:
+            raise RuntimeError(
+                f"IBKR could not qualify contract for {commodity_name} ({symbol} on {exchange}). "
+                f"Check that you have a market data subscription for this instrument."
+            )
+
+        # Request historical bars
+        bars = ib.reqHistoricalData(
+            contract         = qualified[0],
+            endDateTime      = end_str,
+            durationStr      = duration,
+            barSizeSetting   = ib_bar_size,
+            whatToShow       = "TRADES",
+            useRTH           = True,         # Regular Trading Hours only
+            formatDate       = 1,
+            keepUpToDate     = False,
+        )
+
+        if not bars:
+            raise RuntimeError(
+                f"No historical data returned for {commodity_name}. "
+                f"Check market data subscription and date range."
+            )
+
+        # Convert to DataFrame
+        df = util.df(bars)
+        if df is None or df.empty:
+            raise RuntimeError(f"Empty data returned for {commodity_name}")
+
+        # Standardize columns
+        df = df.rename(columns={
+            "date":   "Date",
+            "open":   "Open",
+            "high":   "High",
+            "low":    "Low",
+            "close":  "Close",
+            "volume": "Volume",
+        })
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date")
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+        # Filter to requested date range
+        start_ts = pd.Timestamp(start_dt)
+        end_ts   = pd.Timestamp(end_dt)
+        df = df[(df.index >= start_ts) & (df.index <= end_ts)]
+        df = df.dropna()
+        df = df[df["Close"] > 0]
+
+        return df
+
+    finally:
+        ib.disconnect()
+
+
+def test_ibkr_connection(host: str = "127.0.0.1", port: int = 7497, client_id: int = 99) -> tuple:
+    """
+    Test IBKR connection. Returns (connected: bool, message: str).
+    """
+    try:
+        from ib_insync import IB, util
+        util.logToConsole(None)
+        ib = IB()
+        ib.connect(host, port, clientId=client_id, timeout=5)
+        server_version = ib.serverVersion()
+        ib.disconnect()
+        return True, f"Connected to IBKR (server v{server_version})"
+    except ImportError:
+        return False, "ib_insync not installed — run: pip install ib_insync"
+    except Exception as e:
+        return False, f"Cannot connect to {host}:{port} — {str(e)[:100]}"
+
+
+# ─────────────────────────────────────────────────────────────
 # COINBASE FUTURES
 # ─────────────────────────────────────────────────────────────
 
